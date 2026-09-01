@@ -131,7 +131,7 @@
     position: relative;
     max-width: 1240px;
     margin: 0 auto;
-    padding: 12px 24px 60px;
+    padding: 12px 38px 60px;
     display: grid;
     grid-template-columns: repeat(3, 1fr);
     gap: 14px;
@@ -295,7 +295,8 @@
     pointer-events: none;
     transition: opacity 180ms ease;
   }
-  body.drawer-open #scrim { opacity: 1; pointer-events: auto; }
+  body.drawer-open #scrim,
+  body.charts-open #scrim { opacity: 1; pointer-events: auto; }
   #drawer {
     position: fixed;
     top: 0; right: 0; bottom: 0;
@@ -311,6 +312,120 @@
     transition: transform 200ms ease, visibility 200ms;
   }
   body.drawer-open #drawer { transform: none; visibility: visible; }
+  /* edge handle: the drawer's visible surface while it is closed */
+  #drawer-tab {
+    position: fixed;
+    top: 50%;
+    right: 0;
+    transform: translateY(-50%);
+    z-index: 45;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 16px 7px 16px 6px;
+    font: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-right: none;
+    border-radius: 9px 0 0 9px;
+    box-shadow: -6px 0 16px rgba(0, 0, 0, 0.09);
+    cursor: pointer;
+    writing-mode: vertical-rl;
+    transition: transform 200ms ease, opacity 160ms ease, color 120ms ease, background-color 120ms ease;
+  }
+  #drawer-tab .grip,
+  #charts-tab .grip {
+    writing-mode: horizontal-tb;
+    width: 3px;
+    height: 26px;
+    border-radius: 2px;
+    background: var(--border);
+    transition: background-color 120ms ease;
+  }
+  #drawer-tab:hover { color: var(--ink); background: var(--surface-soft); }
+  #drawer-tab:hover .grip { background: var(--accent); }
+  #drawer-tab:focus-visible { outline: 2px solid var(--drop-ring); outline-offset: 2px; }
+  body.drawer-open #drawer-tab {
+    transform: translateY(-50%) translateX(101%);
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  /* --- charts drawer (left) --- */
+  #charts-drawer {
+    position: fixed;
+    top: 0; left: 0; bottom: 0;
+    z-index: 50;
+    width: min(330px, 88vw);
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    box-shadow: 14px 0 34px rgba(0, 0, 0, 0.14);
+    display: flex;
+    flex-direction: column;
+    transform: translateX(-101%);
+    visibility: hidden;
+    transition: transform 200ms ease, visibility 200ms;
+  }
+  body.charts-open #charts-drawer { transform: none; visibility: visible; }
+  #charts-tab {
+    position: fixed;
+    top: 50%;
+    left: 0;
+    transform: translateY(-50%);
+    z-index: 45;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 16px 6px 16px 7px;
+    font: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: none;
+    border-radius: 0 9px 9px 0;
+    box-shadow: 6px 0 16px rgba(0, 0, 0, 0.09);
+    cursor: pointer;
+    writing-mode: vertical-rl;
+    transition: transform 200ms ease, opacity 160ms ease, color 120ms ease, background-color 120ms ease;
+  }
+  #charts-tab:hover { color: var(--ink); background: var(--surface-soft); }
+  #charts-tab:hover .grip { background: var(--accent); }
+  #charts-tab:focus-visible { outline: 2px solid var(--drop-ring); outline-offset: 2px; }
+  body.charts-open #charts-tab {
+    transform: translateY(-50%) translateX(-101%);
+    opacity: 0;
+    pointer-events: none;
+  }
+  #charts-list { display: flex; flex-direction: column; gap: 4px; }
+  .chart-row { display: flex; align-items: stretch; gap: 4px; }
+  .chart-row .pick {
+    flex: 1;
+    min-width: 0;
+    text-align: left;
+    padding: 9px 12px;
+    background: transparent;
+    border-color: transparent;
+  }
+  .chart-row .pick:hover { background: var(--surface-soft); }
+  .chart-row.active .pick { background: var(--accent-soft); border-color: var(--accent); }
+  .chart-name { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .chart-meta { display: block; margin-top: 2px; font-size: 11.5px; font-weight: 500; color: var(--muted); }
+  .chart-del {
+    flex: none;
+    padding: 0 11px;
+    color: var(--muted);
+    background: transparent;
+    border-color: transparent;
+    line-height: 1;
+  }
+  .chart-del:hover { color: var(--error); background: var(--surface-soft); border-color: var(--border); }
   .drawer-head {
     display: flex;
     align-items: center;
@@ -372,6 +487,23 @@
 
 <div id="scrim"></div>
 
+<button id="charts-tab" aria-label="Open saved charts" aria-controls="charts-drawer"><span class="grip" aria-hidden="true"></span>Charts</button>
+
+<aside id="charts-drawer" aria-label="Saved charts" inert>
+  <div class="drawer-head">
+    <strong>Charts</strong>
+    <button id="charts-close" class="icon-btn" aria-label="Close">Close</button>
+  </div>
+  <div class="drawer-body">
+    <div class="row"><button id="charts-new" class="primary">New chart</button></div>
+    <div class="section-label">Saved in this browser</div>
+    <div id="charts-list"></div>
+    <p class="hint" style="margin:0">A chart is named by its title in the top bar. Switching charts saves the one you are leaving.</p>
+  </div>
+</aside>
+
+<button id="drawer-tab" aria-label="Open guest data" aria-controls="drawer"><span class="grip" aria-hidden="true"></span>Guest data</button>
+
 <aside id="drawer" aria-label="Guest data" inert>
   <div class="drawer-head">
     <strong>Guest data</strong>
@@ -401,13 +533,12 @@ Ada Lovelace"></textarea>
     </div>
     <p class="hint" style="margin:0">CSV and TSV round-trip back into the box above, empty tables included; a couple seated at two different tables is written out at the first partner's table. Seat list is a flat <code>group, seat, guest</code> export for place cards.</p>
     <hr>
-    <div class="row"><button id="clear-all" class="danger">Clear everything</button></div>
-    <p class="hint" style="margin:0">This chart is saved in this browser only. Use <em>Copy link</em> to carry it to another browser or device — the whole chart travels inside the link.</p>
+    <p class="hint" style="margin:0">Your charts are saved in this browser only. Use <em>Copy link</em> to carry it to another browser or device — the whole chart travels inside the link.</p>
   </div>
 </aside>
 
 <script>
-  const STORE_KEY = "seating-chart-v1";
+  const LIB_KEY = "seating-charts-v1";
   const COUPLE_HUES = [18, 205, 45, 280, 340, 95, 160, 240, 60, 310, 130, 25, 190, 265, 355, 80, 220];
   const MAX_GROUPS = 200;
 
@@ -419,6 +550,23 @@ Ada Lovelace"></textarea>
     return { title: "", people: [], groups: [], seats: [], unseated: [], source: "" };
   }
   let S = emptyState();
+  // the library of saved charts; a chart is named by its own title
+  // charts: [{ id, updated, state }]
+  let L = { active: "", charts: [] };
+
+  function newId() {
+    return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+  }
+  function activeEntry() {
+    for (const c of L.charts) if (c.id === L.active) return c;
+    return null;
+  }
+  function addChart(state, makeActive) {
+    const e = { id: newId(), updated: Date.now(), state };
+    L.charts.push(e);
+    if (makeActive) { L.active = e.id; S = e.state; }
+    return e;
+  }
 
   function coupleColor(c) {
     return "hsl(" + COUPLE_HUES[c % COUPLE_HUES.length] + ", 42%, 52%)";
@@ -615,7 +763,23 @@ Ada Lovelace"></textarea>
     return st;
   }
   function save() {
-    try { localStorage.setItem(STORE_KEY, JSON.stringify(S)); } catch (e) {}
+    const e = activeEntry();
+    if (e) { e.state = S; e.updated = Date.now(); }
+    else addChart(S, true);
+    try { localStorage.setItem(LIB_KEY, JSON.stringify(L)); } catch (err) {}
+  }
+  function loadLibrary() {
+    try {
+      const o = JSON.parse(localStorage.getItem(LIB_KEY));
+      if (!o || !Array.isArray(o.charts)) return null;
+      const charts = [];
+      for (const c of o.charts) {
+        const st = c && validate(c.state);
+        if (st) charts.push({ id: String(c.id || newId()), updated: Number(c.updated) || 0, state: st });
+      }
+      if (charts.length) return { active: String(o.active || ""), charts };
+    } catch (e) {}
+    return null;
   }
   // The whole chart travels in the link, so the payload is kept terse: people
   // become [name] or [name, coupleId], and the raw paste text is left behind.
@@ -643,25 +807,23 @@ Ada Lovelace"></textarea>
     return location.href.split(/[?#]/)[0] + "#s=" + b64uEncode(JSON.stringify(sharePayload()));
   }
   function restore() {
-    // a #s= link wins over whatever is in this browser, then hands the chart over to
-    // local storage and drops itself from the address bar so later edits stick
+    L = loadLibrary() || { active: "", charts: [] };
+    // a #s= link arrives as its own new chart, so it never overwrites local work, then
+    // drops itself from the address bar so later edits stick
     const m = /[#&]s=([A-Za-z0-9_-]+)/.exec(location.hash);
     if (m) {
       try {
         const st = fromSharePayload(JSON.parse(b64uDecode(m[1])));
         if (st) {
-          S = st;
-          save();
+          addChart(st, true);
           try { history.replaceState(null, "", location.pathname + location.search); } catch (e) {}
-          return;
         }
       } catch (e) {}
     }
-    try {
-      const st = validate(JSON.parse(localStorage.getItem(STORE_KEY)));
-      if (st) { S = st; return; }
-    } catch (e) {}
-    S = emptyState();
+    if (!activeEntry()) L.active = L.charts.length ? L.charts[0].id : "";
+    if (!activeEntry()) addChart(emptyState(), true);
+    S = activeEntry().state;
+    save();
   }
 
   // ---------- render ----------
@@ -985,6 +1147,7 @@ Ada Lovelace"></textarea>
     S.title = titleInput.value;
     document.title = S.title.trim() ? S.title.trim() + " · Seating" : "Seating Chart Builder";
     save();
+    renderCharts();
   });
 
   // ---------- drawer ----------
@@ -999,6 +1162,7 @@ Ada Lovelace"></textarea>
       lastPrefill = S.people.length || S.groups.length ? buildTsv() : "";
       dataInput.value = lastPrefill;
     }
+    closeCharts();
     document.body.classList.add("drawer-open");
     drawer.removeAttribute("inert");
     dataInput.focus();
@@ -1009,10 +1173,13 @@ Ada Lovelace"></textarea>
     dataError.textContent = "";
   }
   document.getElementById("drawer-open").addEventListener("click", openDrawer);
+  document.getElementById("drawer-tab").addEventListener("click", openDrawer);
   document.getElementById("drawer-close").addEventListener("click", closeDrawer);
-  document.getElementById("scrim").addEventListener("click", closeDrawer);
+  document.getElementById("scrim").addEventListener("click", () => { closeDrawer(); closeCharts(); });
   document.addEventListener("keydown", e => {
-    if (e.key === "Escape" && document.body.classList.contains("drawer-open")) closeDrawer();
+    if (e.key !== "Escape") return;
+    if (document.body.classList.contains("drawer-open")) closeDrawer();
+    if (document.body.classList.contains("charts-open")) closeCharts();
   });
 
   function applyText(text) {
@@ -1023,6 +1190,7 @@ Ada Lovelace"></textarea>
       dataInput.value = "";
       save();
       render();
+      renderCharts();
       closeDrawer();
     } catch (err) {
       dataError.textContent = err.message;
@@ -1035,24 +1203,111 @@ Ada Lovelace"></textarea>
     lastPrefill = S.source;
     applyText(S.source);
   });
-  document.getElementById("clear-all").addEventListener("click", () => {
-    if (!confirm("Delete this chart and all its guests from this browser?")) return;
-    S = emptyState();
+  // ---------- charts drawer ----------
+  const chartsDrawer = document.getElementById("charts-drawer");
+  const chartsList = document.getElementById("charts-list");
+
+  function chartName(st) { return st.title.trim() || "Untitled chart"; }
+  function chartMeta(st) {
+    const n = st.people.length, g = st.groups.length;
+    return n + (n === 1 ? " guest" : " guests") + " · " + g + (g === 1 ? " table" : " tables");
+  }
+  function renderCharts() {
+    chartsList.textContent = "";
+    for (const c of L.charts) {
+      const name = chartName(c.state);
+      const row = document.createElement("div");
+      row.className = "chart-row" + (c.id === L.active ? " active" : "");
+
+      const pick = document.createElement("button");
+      pick.className = "pick";
+      if (c.id === L.active) pick.setAttribute("aria-current", "true");
+      const nameEl = document.createElement("span");
+      nameEl.className = "chart-name";
+      nameEl.textContent = name;
+      const metaEl = document.createElement("span");
+      metaEl.className = "chart-meta";
+      metaEl.textContent = chartMeta(c.state);
+      pick.append(nameEl, metaEl);
+      pick.title = name;
+      pick.addEventListener("click", () => switchChart(c.id));
+
+      const del = document.createElement("button");
+      del.className = "chart-del";
+      del.textContent = "✕";
+      del.title = "Delete " + name;
+      del.setAttribute("aria-label", "Delete " + name);
+      del.addEventListener("click", () => deleteChart(c.id));
+
+      row.append(pick, del);
+      chartsList.appendChild(row);
+    }
+  }
+  // pull whatever S now points at into the board, the title bar and the chart list
+  function adoptChart() {
     lastPrefill = "";
     dataInput.value = "";
     dataError.textContent = "";
-    titleInput.value = "";
-    document.title = "Seating Chart Builder";
-    try { localStorage.removeItem(STORE_KEY); } catch (e) {}
+    titleInput.value = S.title;
+    document.title = S.title.trim() ? S.title.trim() + " · Seating" : "Seating Chart Builder";
     render();
+    renderCharts();
+  }
+  function switchChart(id) {
+    if (id === L.active) { closeCharts(); return; }
+    let target = null;
+    for (const c of L.charts) if (c.id === id) target = c;
+    if (!target) return;
+    save();                 // flush the chart being left behind
+    L.active = target.id;
+    S = target.state;
+    adoptChart();
+    save();
+    closeCharts();
+  }
+  function newChart() {
+    save();
+    addChart(emptyState(), true);
+    adoptChart();
+    save();
+    closeCharts();
+    titleInput.focus();
+  }
+  function deleteChart(id) {
+    const i = L.charts.findIndex(c => c.id === id);
+    if (i < 0) return;
+    if (!confirm("Delete “" + chartName(L.charts[i].state) + "”? This cannot be undone.")) return;
+    const wasActive = L.charts[i].id === L.active;
+    L.charts.splice(i, 1);
+    if (wasActive) {
+      // land on a neighbour, or on a fresh chart if that was the last one
+      if (L.charts.length) { L.active = L.charts[Math.min(i, L.charts.length - 1)].id; S = activeEntry().state; }
+      else addChart(emptyState(), true);
+      adoptChart();
+    } else {
+      renderCharts();
+    }
+    save();
+  }
+
+  function openCharts() {
     closeDrawer();
-  });
+    renderCharts();
+    document.body.classList.add("charts-open");
+    chartsDrawer.removeAttribute("inert");
+    document.getElementById("charts-new").focus();
+  }
+  function closeCharts() {
+    document.body.classList.remove("charts-open");
+    chartsDrawer.setAttribute("inert", "");
+  }
+  document.getElementById("charts-tab").addEventListener("click", openCharts);
+  document.getElementById("charts-close").addEventListener("click", closeCharts);
+  document.getElementById("charts-new").addEventListener("click", newChart);
 
   // ---------- boot ----------
   restore();
-  titleInput.value = S.title;
-  if (S.title.trim()) document.title = S.title.trim() + " · Seating";
-  render();
+  adoptChart();
 </script>
 </body>
 </html>
