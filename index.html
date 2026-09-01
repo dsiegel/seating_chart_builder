@@ -126,37 +126,79 @@
     padding: 1px 5px;
   }
 
+  /* --- arrangement toolbar --- */
+  .toolbar {
+    max-width: 1240px;
+    margin: 0 auto;
+    padding: 2px 38px 0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .toolbar[hidden] { display: none; }
+  .toolbar label { display: inline-flex; align-items: center; gap: 6px; }
+  .toolbar label[hidden] { display: none; }
+  .toolbar select {
+    font: inherit;
+    font-weight: 600;
+    color: var(--ink);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 7px 9px;
+  }
+  .toolbar select:focus-visible { outline: 2px solid var(--drop-ring); outline-offset: 2px; }
+
   /* --- board --- */
   main {
     position: relative;
     max-width: 1240px;
     margin: 0 auto;
     padding: 12px 38px 60px;
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 14px;
   }
-  #links { position: absolute; inset: 0; z-index: 1; pointer-events: none; }
-  @media (max-width: 980px) { main { grid-template-columns: repeat(2, 1fr); } }
-  @media (max-width: 620px) { main { grid-template-columns: 1fr; } }
+  /* the canvas holds the tables at free (x, y) positions and is scaled to fit */
+  #stage { position: relative; overflow-x: auto; overflow-y: hidden; }
+  #stage[hidden] { display: none; }
+  #canvas { position: relative; transform-origin: 0 0; }
+  #canvas.animating { transition: transform 280ms ease; }
+  #canvas.animating .table-zone { transition: left 280ms ease, top 280ms ease; }
+  #links { position: absolute; left: 0; top: 0; z-index: 1; pointer-events: none; }
+  #links-out { position: absolute; inset: 0; z-index: 30; pointer-events: none; }
+  #links, #links-out { transition: opacity 120ms ease; }
+  .moving-chip #links, .moving-chip #links-out { opacity: 0; }
 
   .table-zone {
-    position: relative;
+    position: absolute;
     background: var(--surface-soft);
     border: 1px solid var(--border);
     border-radius: 10px;
-    height: 300px;
     overflow: hidden;
     transition: border-color 120ms, box-shadow 120ms;
+  }
+  .table-zone:not(.unseated) {
+    cursor: grab;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  .table-zone:not(.unseated):hover { z-index: 10; }
+  .table-zone.raised:not(.unseated) { z-index: 11; }
+  .table-zone.moving:not(.unseated) {
+    cursor: grabbing;
+    z-index: 20;
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.18);
   }
   .table-zone.over {
     border-color: var(--drop-ring);
     box-shadow: inset 0 0 0 1px var(--drop-ring);
   }
+  .table-zone.crowded .chip { font-size: 11px; padding: 2px 7px; max-width: 48%; }
   .table-zone.unseated {
-    grid-column: 1 / -1;
+    position: relative;
+    width: auto;
     height: auto;
     min-height: 60px;
+    margin-bottom: 14px;
     display: flex;
     flex-wrap: wrap;
     align-items: center;
@@ -171,16 +213,15 @@
     margin-right: 8px;
     pointer-events: none;
   }
-  .table-zone.add, .empty-state {
+  .empty-state {
     display: flex;
     align-items: center;
     justify-content: center;
     border-style: dashed;
     background: transparent;
   }
-  .table-zone.add { min-height: 300px; }
   .empty-state {
-    grid-column: 1 / -1;
+    position: relative;
     height: auto;
     flex-direction: column;
     gap: 12px;
@@ -284,6 +325,21 @@
   .chip.dragging { opacity: 0.35; }
   .chip.partner-hl { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); z-index: 4; }
   .chip .dot { width: 6px; height: 6px; border-radius: 50%; flex: none; }
+  .chip.src-hidden { display: none; }
+  /* the gap that opens up under a dragged guest */
+  .seat-ghost {
+    position: absolute;
+    z-index: 3;
+    transform: translate(-50%, -50%);
+    width: 76px;
+    height: 24px;
+    border-radius: 999px;
+    border: 1px dashed var(--drop-ring);
+    background: var(--accent-soft);
+    pointer-events: none;
+    transition: left 170ms ease, top 170ms ease;
+  }
+  .seat-ghost.inline { position: static; transform: none; }
 
   /* --- drawer --- */
   #scrim {
@@ -475,7 +531,7 @@
 <div class="topbar">
   <div>
     <input id="chart-title" placeholder="Untitled seating chart" maxlength="120" spellcheck="false" aria-label="Chart title">
-    <div class="subtitle"><span id="total">0</span> guests · drag a name onto a table — drop between two people to seat them there</div>
+    <div class="subtitle"><span id="total">0</span> guests · drag a name onto a table — the others shuffle aside to show the seat</div>
   </div>
   <div class="topbar-actions">
     <button id="copy-link">Copy link</button>
@@ -483,7 +539,38 @@
   </div>
 </div>
 
-<main id="board"></main>
+<div class="toolbar" id="toolbar" hidden>
+  <label>
+    <span class="section-label">Arrangement</span>
+    <select id="arrange-mode" aria-label="Table arrangement">
+      <option value="grid">Grid</option>
+      <option value="circle">Circle</option>
+      <option value="rect">Rectangle</option>
+      <option value="custom">Custom</option>
+    </select>
+  </label>
+  <label id="cols-wrap">
+    <span class="section-label">Columns</span>
+    <select id="arrange-cols" aria-label="Columns in the grid">
+      <option value="0">Auto</option>
+      <option value="1">1</option>
+      <option value="2">2</option>
+      <option value="3">3</option>
+      <option value="4">4</option>
+      <option value="5">5</option>
+      <option value="6">6</option>
+      <option value="7">7</option>
+      <option value="8">8</option>
+    </select>
+  </label>
+  <button id="add-table">+ Add table</button>
+  <span class="hint">Drag a table to place it yourself.</span>
+</div>
+
+<main id="board">
+  <div id="unseated-wrap"></div>
+  <div id="stage"><div id="canvas"></div></div>
+</main>
 
 <div id="scrim"></div>
 
@@ -541,13 +628,20 @@ Ada Lovelace"></textarea>
   const LIB_KEY = "seating-charts-v1";
   const COUPLE_HUES = [18, 205, 45, 280, 340, 95, 160, 240, 60, 310, 130, 25, 190, 265, 355, 80, 220];
   const MAX_GROUPS = 200;
+  // a table's card, in canvas pixels, and the space between two of them
+  const CARD_W = 280, CARD_H = 250, GAP = 18;
+  const MODES = ["grid", "circle", "rect", "custom"];
 
   // ---------- state ----------
   // people: [{name, couple: number|null, first: bool}]
   // groups: ["Table 1", ...]           seats: [[personIndex, ...], ...]  (parallel to groups)
   // unseated: [personIndex, ...]       source: last text loaded through the drawer
+  // layout: {mode, cols} chosen arrangement   pos: [{x, y}, ...] table centres
   function emptyState() {
-    return { title: "", people: [], groups: [], seats: [], unseated: [], source: "" };
+    return {
+      title: "", people: [], groups: [], seats: [], unseated: [], source: "",
+      layout: { mode: "grid", cols: 0 }, pos: [],
+    };
   }
   let S = emptyState();
   // the library of saved charts; a chart is named by its own title
@@ -628,6 +722,10 @@ Ada Lovelace"></textarea>
     const st = emptyState();
     st.title = S.title;
     st.source = String(text);
+    // a fresh set of tables has nowhere to inherit hand-placed positions from
+    st.layout = S.layout.mode === "custom"
+      ? { mode: "grid", cols: 0 }
+      : { mode: S.layout.mode, cols: S.layout.cols };
     const index = new Map();
     let couples = 0;
 
@@ -746,6 +844,17 @@ Ada Lovelace"></textarea>
       else { p.couple = null; p.first = true; }
     }
     st.groups = o.groups.slice(0, MAX_GROUPS).map(g => (typeof g === "string" && g ? g : "Table"));
+    const lay = o.layout && typeof o.layout === "object" ? o.layout : {};
+    st.layout = {
+      mode: MODES.indexOf(lay.mode) === -1 ? "grid" : lay.mode,
+      cols: Number.isInteger(lay.cols) && lay.cols >= 0 && lay.cols <= 8 ? lay.cols : 0,
+    };
+    // a missing or nonsense position is left null for ensurePositions to fill
+    st.pos = st.groups.map((g, i) => {
+      const p = Array.isArray(o.pos) ? o.pos[i] : null;
+      if (!p || !Number.isFinite(p.x) || !Number.isFinite(p.y)) return null;
+      return { x: Math.min(40000, Math.max(0, p.x)), y: Math.min(40000, Math.max(0, p.y)) };
+    });
     const seen = new Set();
     const clean = list => {
       const out = [];
@@ -785,21 +894,27 @@ Ada Lovelace"></textarea>
   // become [name] or [name, coupleId], and the raw paste text is left behind.
   function sharePayload() {
     return {
-      v: 1,
+      v: 2,
       t: S.title,
       g: S.groups,
       p: S.people.map(p => (p.couple === null ? [p.name] : [p.name, p.couple])),
       s: S.seats,
       u: S.unseated,
+      l: [S.layout.mode, S.layout.cols],
+      q: S.pos.map(p => (p ? [Math.round(p.x), Math.round(p.y)] : null)),
     };
   }
+  // v1 links predate arrangements and simply fall back to the default grid
   function fromSharePayload(o) {
-    if (!o || o.v !== 1 || !Array.isArray(o.p)) return null;
+    if (!o || (o.v !== 1 && o.v !== 2) || !Array.isArray(o.p)) return null;
+    const l = Array.isArray(o.l) ? o.l : [];
     return validate({
       title: o.t,
       groups: o.g,
       seats: o.s,
       unseated: o.u,
+      layout: { mode: l[0], cols: l[1] },
+      pos: Array.isArray(o.q) ? o.q.map(a => (Array.isArray(a) ? { x: a[0], y: a[1] } : null)) : [],
       people: o.p.map(a => (Array.isArray(a) ? { name: a[0], couple: a[1] } : null)),
     });
   }
@@ -826,9 +941,107 @@ Ada Lovelace"></textarea>
     save();
   }
 
+  // ---------- arrangements ----------
+  // Tables sit at free (x, y) centres on the canvas. A preset arrangement is just
+  // a recipe for those centres; "custom" means the user placed them by hand.
+  function arrangeGrid(n, cols) {
+    const c = Math.max(1, Math.min(cols || autoCols(n), Math.max(1, n)));
+    const out = [];
+    for (let i = 0; i < n; i++) {
+      out.push({ x: (i % c) * (CARD_W + GAP), y: Math.floor(i / c) * (CARD_H + GAP) });
+    }
+    return out;
+  }
+  // Auto is as many columns as the board is wide enough to show at full size,
+  // which is what keeps the grid readable on a narrow window.
+  function autoCols(n) {
+    const el = document.getElementById("stage");
+    const avail = (el && el.clientWidth) || 1164;
+    return Math.max(1, Math.min(n, Math.floor((avail + GAP) / (CARD_W + GAP))));
+  }
+  // A ring wide enough that neighbouring cards clear each other. The chord alone
+  // is not enough — the cards are boxes, so the ring grows until every adjacent
+  // pair is clear on one axis or the other.
+  function arrangeCircle(n) {
+    if (n < 2) return arrangeGrid(n, 1);
+    const step = (2 * Math.PI) / n;
+    let r = Math.max((CARD_H + GAP) / 2, (CARD_W + GAP) / (2 * Math.sin(Math.PI / n)));
+    for (let guard = 0; guard < 200 && !ringClears(r, step, n); guard++) r *= 1.03;
+    const out = [];
+    for (let i = 0; i < n; i++) {
+      const a = -Math.PI / 2 + i * step;
+      out.push({ x: r * Math.cos(a), y: r * Math.sin(a) });
+    }
+    return out;
+  }
+  function ringClears(r, step, n) {
+    for (let i = 0; i < n; i++) {
+      const a = -Math.PI / 2 + i * step, b = a + step;
+      const dx = Math.abs(r * Math.cos(a) - r * Math.cos(b));
+      const dy = Math.abs(r * Math.sin(a) - r * Math.sin(b));
+      if (dx < CARD_W + GAP && dy < CARD_H + GAP) return false;
+    }
+    return true;
+  }
+  // a hollow rectangle: the smallest ring of grid cells that fits every table,
+  // kept near 4:3, with the tables spread evenly around it
+  function arrangeRect(n) {
+    if (n < 4) return arrangeGrid(n, n);
+    let a = 2, b = 2;
+    while (2 * a + 2 * b - 4 < n) { if (a / b < 4 / 3) a++; else b++; }
+    const cells = [];
+    for (let i = 0; i < a; i++) cells.push([i, 0]);
+    for (let j = 1; j < b; j++) cells.push([a - 1, j]);
+    for (let i = a - 2; i >= 0; i--) cells.push([i, b - 1]);
+    for (let j = b - 2; j >= 1; j--) cells.push([0, j]);
+    const out = [];
+    for (let i = 0; i < n; i++) {
+      const c = cells[Math.round((i * cells.length) / n) % cells.length];
+      out.push({ x: c[0] * (CARD_W + GAP), y: c[1] * (CARD_H + GAP) });
+    }
+    return out;
+  }
+  function arrange(mode, cols, n) {
+    const pts = mode === "circle" ? arrangeCircle(n)
+      : mode === "rect" ? arrangeRect(n)
+      : arrangeGrid(n, cols);
+    let minx = Infinity, miny = Infinity;
+    for (const p of pts) { minx = Math.min(minx, p.x); miny = Math.min(miny, p.y); }
+    return pts.map(p => ({
+      x: Math.round(p.x - minx + CARD_W / 2),
+      y: Math.round(p.y - miny + CARD_H / 2),
+    }));
+  }
+  // a preset owns every position; custom keeps what the user dragged and drops
+  // any table that has no position yet onto a fresh row underneath
+  function ensurePositions() {
+    const n = S.groups.length;
+    if (S.layout.mode !== "custom") { S.pos = arrange(S.layout.mode, S.layout.cols, n); return; }
+    const out = [];
+    for (let i = 0; i < n; i++) {
+      const p = S.pos[i];
+      if (p && Number.isFinite(p.x) && Number.isFinite(p.y)) { out.push({ x: p.x, y: p.y }); continue; }
+      let bottom = 0;
+      for (const q of out) bottom = Math.max(bottom, q.y);
+      out.push({ x: CARD_W / 2, y: out.length ? bottom + CARD_H + GAP : CARD_H / 2 });
+    }
+    S.pos = out;
+  }
+
   // ---------- render ----------
+  const SVGNS = "http://www.w3.org/2000/svg";
   const board = document.getElementById("board");
+  const unseatedWrap = document.getElementById("unseated-wrap");
+  const stage = document.getElementById("stage");
+  const canvas = document.getElementById("canvas");
+  const toolbar = document.getElementById("toolbar");
+  const modeSel = document.getElementById("arrange-mode");
+  const colsSel = document.getElementById("arrange-cols");
+  const colsWrap = document.getElementById("cols-wrap");
   const titleInput = document.getElementById("chart-title");
+  let scale = 1;
+  // the table most recently moved by hand, kept in front of any it overlaps
+  let raised = -1;
 
   function makeChip(i) {
     const p = S.people[i];
@@ -853,6 +1066,43 @@ Ada Lovelace"></textarea>
     return el;
   }
 
+  // seats run clockwise from 12 o'clock; crowded tables use two rings
+  function seatPos(k, n) {
+    const inner = n > 12 && k % 2 === 1;
+    const a = -Math.PI / 2 + (k * 2 * Math.PI) / n;
+    return {
+      left: 50 + (inner ? 28 : 41) * Math.cos(a),
+      top: 50 + (inner ? 27 : 40) * Math.sin(a),
+    };
+  }
+  // Place a table's chips around its disc. `ghostAt` opens an extra seat there,
+  // which is how the guests already at the table shuffle aside for a drop.
+  function layoutSeats(zone, ids, ghostAt) {
+    const gap = Number.isInteger(ghostAt) && ghostAt >= 0;
+    const n = ids.length + (gap ? 1 : 0);
+    let ghost = zone.querySelector(".seat-ghost");
+    if (gap && !ghost) {
+      ghost = document.createElement("div");
+      ghost.className = "seat-ghost";
+      zone.append(ghost);
+    } else if (!gap && ghost) {
+      ghost.remove();
+      ghost = null;
+    }
+    let slot = 0;
+    const put = el => {
+      if (!el) return;
+      const s = seatPos(slot++, n);
+      el.style.left = s.left + "%";
+      el.style.top = s.top + "%";
+    };
+    for (let k = 0; k < ids.length; k++) {
+      if (gap && k === ghostAt) put(ghost);
+      put(zone.querySelector('.chip[data-id="' + ids[k] + '"]'));
+    }
+    if (gap && ghostAt >= ids.length) put(ghost);
+  }
+
   function renderUnseated() {
     const zone = document.createElement("section");
     zone.className = "table-zone unseated";
@@ -872,7 +1122,13 @@ Ada Lovelace"></textarea>
     const zone = document.createElement("section");
     zone.className = "table-zone";
     zone.dataset.zone = gi;
+    zone.style.width = CARD_W + "px";
+    zone.style.height = CARD_H + "px";
+    zone.style.left = (S.pos[gi].x - CARD_W / 2) + "px";
+    zone.style.top = (S.pos[gi].y - CARD_H / 2) + "px";
+    if (gi === raised) zone.classList.add("raised");
     const seated = S.seats[gi];
+    if (seated.length > 14) zone.classList.add("crowded");
 
     const del = document.createElement("button");
     del.className = "zone-del";
@@ -892,28 +1148,8 @@ Ada Lovelace"></textarea>
     disc.append(title, zoneCount(seated.length));
     zone.append(disc);
 
-    // seats run clockwise from 12 o'clock; crowded tables grow and use two rings
-    const n = seated.length;
-    const crowded = n > 12;
-    if (n > 14) zone.style.height = (300 + (n - 14) * 14) + "px";
-    seated.forEach((id, k) => {
-      const angle = -Math.PI / 2 + (k * 2 * Math.PI) / n;
-      const inner = crowded && k % 2 === 1;
-      const chip = makeChip(id);
-      chip.style.left = (50 + (inner ? 29 : 41) * Math.cos(angle)) + "%";
-      chip.style.top = (50 + (inner ? 27 : 40) * Math.sin(angle)) + "%";
-      zone.append(chip);
-    });
-    return zone;
-  }
-
-  function renderAddZone() {
-    const zone = document.createElement("section");
-    zone.className = "table-zone add";
-    const btn = document.createElement("button");
-    btn.id = "add-table";
-    btn.textContent = "+ Add a table";
-    zone.append(btn);
+    for (const id of seated) zone.append(makeChip(id));
+    layoutSeats(zone, seated, -1);
     return zone;
   }
 
@@ -931,28 +1167,64 @@ Ada Lovelace"></textarea>
     btn.className = "primary";
     btn.textContent = "Paste guest data";
     box.append(h, p, btn);
-    board.append(box);
+    return box;
   }
 
   function render() {
-    board.innerHTML = "";
     document.getElementById("total").textContent = S.people.length;
-    if (!S.people.length && !S.groups.length) { renderEmpty(); return; }
-    board.append(renderUnseated());
-    S.groups.forEach((g, gi) => board.append(renderGroup(gi)));
-    board.append(renderAddZone());
+    unseatedWrap.textContent = "";
+    canvas.textContent = "";
+    const out = document.getElementById("links-out");
+    if (out) out.remove();
+    const blank = !S.people.length && !S.groups.length;
+    toolbar.hidden = blank;
+    stage.hidden = blank;
+    if (blank) { unseatedWrap.append(renderEmpty()); return; }
+    unseatedWrap.append(renderUnseated());
+    ensurePositions();
+    S.groups.forEach((g, gi) => canvas.append(renderGroup(gi)));
+    syncToolbar();
+    applyScale();
     clampChips();
     drawLinks();
   }
 
+  // The canvas is sized to the arrangement and then scaled down so that a wide
+  // ring of tables still fits the board; past 40% it scrolls sideways instead.
+  function applyScale() {
+    if (!S.pos.length) {
+      canvas.style.width = canvas.style.height = "";
+      canvas.style.transform = "none";
+      stage.style.height = "0px";
+      scale = 1;
+      return;
+    }
+    let w = CARD_W, h = CARD_H;
+    for (const p of S.pos) {
+      w = Math.max(w, p.x + CARD_W / 2);
+      h = Math.max(h, p.y + CARD_H / 2);
+    }
+    w = Math.ceil(w) + 2;
+    h = Math.ceil(h) + 2;
+    canvas.style.width = w + "px";
+    canvas.style.height = h + "px";
+    const avail = stage.clientWidth || w;
+    scale = Math.min(1, Math.max(0.3, avail / w));
+    canvas.style.transform = scale === 1 ? "none" : "scale(" + scale + ")";
+    const scrolls = w * scale > avail + 1;
+    stage.style.overflowX = scrolls ? "auto" : "hidden";
+    stage.style.height = (Math.ceil(h * scale) + (scrolls ? 16 : 0)) + "px";
+  }
+
   // a dashed line in the couple's own color joins the two halves of a pair
   function drawLinks() {
-    const old = document.getElementById("links");
-    if (old) old.remove();
-    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    svg.id = "links";
+    for (const el of document.querySelectorAll("#links, #links-out")) el.remove();
+    if (stage.hidden) return;
+    const cr = canvas.getBoundingClientRect();
     const br = board.getBoundingClientRect();
-    svg.setAttribute("viewBox", "0 0 " + br.width + " " + br.height);
+    const sr = stage.getBoundingClientRect();
+    const inSvg = makeSvg("links", canvas.offsetWidth, canvas.offsetHeight);
+    const outSvg = makeSvg("links-out", br.width, br.height);
     const drawn = new Set();
     for (let i = 0; i < S.people.length; i++) {
       const c = S.people[i].couple;
@@ -962,11 +1234,25 @@ Ada Lovelace"></textarea>
       drawn.add(c);
       const els = [i, j].map(k => board.querySelector('.chip[data-id="' + k + '"]'));
       if (!els[0] || !els[1]) continue;
-      const pts = els.map(el => {
-        const r = el.getBoundingClientRect();
-        return [r.left + r.width / 2 - br.left, r.top + r.height / 2 - br.top];
-      });
-      const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+      const rects = els.map(el => el.getBoundingClientRect());
+      let svg, pts;
+      if (els.every(el => canvas.contains(el))) {
+        svg = inSvg;
+        pts = rects.map(r => [
+          (r.left + r.width / 2 - cr.left) / scale,
+          (r.top + r.height / 2 - cr.top) / scale,
+        ]);
+      } else {
+        // one end is out in the unseated strip, so the line is drawn over the
+        // whole board — unless the seated end has been scrolled out of view
+        const hidden = els.some((el, k) => canvas.contains(el) &&
+          (rects[k].bottom < sr.top || rects[k].top > sr.bottom ||
+           rects[k].right < sr.left || rects[k].left > sr.right));
+        if (hidden) continue;
+        svg = outSvg;
+        pts = rects.map(r => [r.left + r.width / 2 - br.left, r.top + r.height / 2 - br.top]);
+      }
+      const line = document.createElementNS(SVGNS, "line");
       line.setAttribute("x1", pts[0][0]);
       line.setAttribute("y1", pts[0][1]);
       line.setAttribute("x2", pts[1][0]);
@@ -977,24 +1263,79 @@ Ada Lovelace"></textarea>
       line.setAttribute("opacity", "0.5");
       svg.append(line);
     }
-    board.append(svg);
+    canvas.append(inSvg);
+    board.append(outSvg);
+  }
+  function makeSvg(id, w, h) {
+    const svg = document.createElementNS(SVGNS, "svg");
+    svg.id = id;
+    svg.setAttribute("width", w);
+    svg.setAttribute("height", h);
+    svg.setAttribute("viewBox", "0 0 " + w + " " + h);
+    return svg;
   }
 
   // nudge chips that stick out past their card's edge back inside
   function clampChips() {
-    for (const zone of board.querySelectorAll(".table-zone:not(.unseated):not(.add)")) {
+    for (const zone of canvas.querySelectorAll(".table-zone")) {
       const zr = zone.getBoundingClientRect();
-      for (const chip of zone.querySelectorAll(".chip")) {
+      for (const chip of zone.querySelectorAll(".chip, .seat-ghost")) {
+        if (chip.classList.contains("src-hidden")) continue;
         chip.style.transform = "translate(-50%, -50%)";
         const r = chip.getBoundingClientRect();
         let dx = 0;
         if (r.left < zr.left + 5) dx = (zr.left + 5) - r.left;
         else if (r.right > zr.right - 5) dx = (zr.right - 5) - r.right;
-        if (dx) chip.style.transform = "translate(calc(-50% + " + dx + "px), -50%)";
+        if (dx) chip.style.transform = "translate(calc(-50% + " + (dx / scale) + "px), -50%)";
       }
     }
   }
-  window.addEventListener("resize", () => { clampChips(); drawLinks(); });
+  let resizeTimer = 0;
+  window.addEventListener("resize", () => {
+    if (stage.hidden) return;
+    applyScale();
+    clampChips();
+    drawLinks();
+    // an automatic grid takes its column count from the width of the window
+    if (S.layout.mode === "grid" && !S.layout.cols) {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(render, 150);
+    }
+  });
+  stage.addEventListener("scroll", () => { if (!stage.hidden) drawLinks(); });
+
+  // ---------- arrangement controls ----------
+  function syncToolbar() {
+    modeSel.value = S.layout.mode;
+    colsSel.value = String(S.layout.cols || 0);
+    colsWrap.hidden = S.layout.mode !== "grid";
+  }
+  // slide the cards to their new spots rather than redrawing the board, so the
+  // change of arrangement reads as the tables moving
+  function setArrangement(mode, cols) {
+    S.layout.mode = MODES.indexOf(mode) === -1 ? "grid" : mode;
+    if (cols !== undefined) S.layout.cols = cols;
+    ensurePositions();
+    save();
+    syncToolbar();
+    if (!S.groups.length) { render(); return; }
+    for (const el of document.querySelectorAll("#links, #links-out")) el.remove();
+    canvas.classList.add("animating");
+    S.groups.forEach((g, gi) => {
+      const zone = canvas.querySelector('.table-zone[data-zone="' + gi + '"]');
+      if (!zone) return;
+      zone.style.left = (S.pos[gi].x - CARD_W / 2) + "px";
+      zone.style.top = (S.pos[gi].y - CARD_H / 2) + "px";
+    });
+    applyScale();
+    setTimeout(() => {
+      canvas.classList.remove("animating");
+      clampChips();
+      drawLinks();
+    }, 300);
+  }
+  modeSel.addEventListener("change", () => setArrangement(modeSel.value));
+  colsSel.addEventListener("change", () => setArrangement("grid", Number(colsSel.value) || 0));
 
   // ---------- tables ----------
   function newGroupName() {
@@ -1008,6 +1349,8 @@ Ada Lovelace"></textarea>
     if (S.groups.length >= MAX_GROUPS) return;
     S.groups.push(newGroupName());
     S.seats.push([]);
+    S.pos.push(null);
+    ensurePositions();
     save();
     render();
   }
@@ -1017,6 +1360,8 @@ Ada Lovelace"></textarea>
     S.unseated.push.apply(S.unseated, S.seats[gi]);
     S.groups.splice(gi, 1);
     S.seats.splice(gi, 1);
+    S.pos.splice(gi, 1);
+    raised = -1;
     save();
     render();
   }
@@ -1030,66 +1375,186 @@ Ada Lovelace"></textarea>
     render();
   }
 
+  document.getElementById("add-table").addEventListener("click", addGroup);
   board.addEventListener("click", e => {
     const btn = e.target.closest("button");
     if (!btn) return;
-    if (btn.id === "add-table") addGroup();
-    else if (btn.id === "empty-open") openDrawer();
+    if (btn.id === "empty-open") openDrawer();
     else if (btn.dataset.del !== undefined) removeGroup(Number(btn.dataset.del));
     else if (btn.dataset.rename !== undefined) renameGroup(Number(btn.dataset.rename));
   });
 
-  // ---------- drag & drop ----------
+  // ---------- moving a whole table ----------
+  let tableDrag = null;
+  canvas.addEventListener("pointerdown", e => {
+    if (e.button !== 0) return;
+    const zone = e.target.closest(".table-zone[data-zone]");
+    if (!zone || zone.dataset.zone === "u") return;
+    if (e.target.closest(".chip, button")) return;
+    const gi = Number(zone.dataset.zone);
+    if (!S.pos[gi]) return;
+    tableDrag = { gi, zone, sx: e.clientX, sy: e.clientY, ox: S.pos[gi].x, oy: S.pos[gi].y, moved: false };
+    zone.setPointerCapture(e.pointerId);
+    e.preventDefault();
+  });
+  canvas.addEventListener("pointermove", e => {
+    if (!tableDrag) return;
+    const dx = (e.clientX - tableDrag.sx) / scale;
+    const dy = (e.clientY - tableDrag.sy) / scale;
+    if (!tableDrag.moved) {
+      if (Math.abs(dx) + Math.abs(dy) < 3) return;
+      tableDrag.moved = true;
+      tableDrag.zone.classList.add("moving");
+    }
+    const x = Math.max(CARD_W / 2, tableDrag.ox + dx);
+    const y = Math.max(CARD_H / 2, tableDrag.oy + dy);
+    S.pos[tableDrag.gi] = { x, y };
+    tableDrag.zone.style.left = (x - CARD_W / 2) + "px";
+    tableDrag.zone.style.top = (y - CARD_H / 2) + "px";
+  });
+  function endTableDrag(e) {
+    if (!tableDrag) return;
+    const t = tableDrag;
+    tableDrag = null;
+    t.zone.classList.remove("moving");
+    try { t.zone.releasePointerCapture(e.pointerId); } catch (err) {}
+    if (!t.moved) return;
+    // placing a table by hand is what turns a preset arrangement into a custom one
+    S.layout.mode = "custom";
+    raised = t.gi;
+    save();
+    render();
+  }
+  canvas.addEventListener("pointerup", endTableDrag);
+  canvas.addEventListener("pointercancel", endTableDrag);
+
+  // ---------- dragging a guest ----------
+  // drag holds the live preview: which zone the cursor is over and which seat
+  // the guest would take there, so the drop lands exactly where the gap showed
+  let drag = null;
+  let reclamp = 0;
+
+  function seatIndexAt(zone, e, n) {
+    const r = zone.getBoundingClientRect();
+    const ang = Math.atan2(e.clientY - (r.top + r.height / 2), e.clientX - (r.left + r.width / 2));
+    let frac = (ang + Math.PI / 2) / (2 * Math.PI);
+    frac = ((frac % 1) + 1) % 1;
+    return Math.round(frac * n) % n;
+  }
+  function unseatedIndexAt(zone, e) {
+    const chips = [...zone.querySelectorAll(".chip")].filter(c => c !== drag.el);
+    for (let k = 0; k < chips.length; k++) {
+      const r = chips[k].getBoundingClientRect();
+      if (e.clientY < r.bottom && e.clientX < r.left + r.width / 2) return k;
+    }
+    return chips.length;
+  }
+  function restoreZone(zone) {
+    const ghost = zone.querySelector(".seat-ghost");
+    if (ghost) ghost.remove();
+    if (zone.dataset.zone !== "u") layoutSeats(zone, S.seats[Number(zone.dataset.zone)], -1);
+    zone.classList.remove("over");
+  }
+  function previewAt(zone, idx) {
+    if (drag.zone && drag.zone !== zone) restoreZone(drag.zone);
+    drag.zone = zone;
+    drag.index = idx;
+    drag.el.classList.add("src-hidden");
+    if (zone.dataset.zone === "u") {
+      let ghost = zone.querySelector(".seat-ghost");
+      if (!ghost) {
+        ghost = document.createElement("div");
+        ghost.className = "seat-ghost inline";
+      }
+      const chips = [...zone.querySelectorAll(".chip")].filter(c => c !== drag.el);
+      zone.insertBefore(ghost, chips[idx] || null);
+    } else {
+      // clear any clamping first, then re-clamp once the chips have slid over
+      for (const el of zone.querySelectorAll(".chip")) el.style.transform = "translate(-50%, -50%)";
+      layoutSeats(zone, seatsWithout(Number(zone.dataset.zone)), idx);
+      clearTimeout(reclamp);
+      reclamp = setTimeout(clampChips, 200);
+    }
+  }
+  function seatsWithout(gi) {
+    return S.seats[gi].filter(x => x !== drag.id);
+  }
+  function endDrag() {
+    clearTimeout(reclamp);
+    board.classList.remove("moving-chip");
+    if (drag && drag.zone) restoreZone(drag.zone);
+    drag = null;
+    for (const el of board.querySelectorAll(".dragging, .over, .partner-hl, .src-hidden")) {
+      el.classList.remove("dragging", "over", "partner-hl", "src-hidden");
+    }
+    for (const el of board.querySelectorAll(".seat-ghost")) el.remove();
+  }
+
   board.addEventListener("dragstart", e => {
     const chip = e.target.closest(".chip");
     if (!chip) return;
-    e.dataTransfer.setData("text/plain", chip.dataset.id);
+    const id = Number(chip.dataset.id);
+    e.dataTransfer.setData("text/plain", String(id));
     e.dataTransfer.effectAllowed = "move";
     chip.classList.add("dragging");
-    highlightPartner(Number(chip.dataset.id), true);
+    board.classList.add("moving-chip");
+    // the source chip is only hidden later, from dragover: hiding it here would
+    // cancel the drag in Chrome, which has not taken its drag image yet
+    drag = { id: id, el: chip, zone: null, index: -1 };
+    highlightPartner(id, true);
   });
   board.addEventListener("dragend", () => {
-    board.querySelectorAll(".dragging, .over, .partner-hl")
-      .forEach(el => el.classList.remove("dragging", "over", "partner-hl"));
+    endDrag();
+    clampChips();
+    drawLinks();
   });
   board.addEventListener("dragover", e => {
     const zone = e.target.closest(".table-zone[data-zone]");
     if (!zone) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = "move";
-    board.querySelectorAll(".over").forEach(el => { if (el !== zone) el.classList.remove("over"); });
+    if (!drag) return;
+    for (const el of board.querySelectorAll(".over")) if (el !== zone) el.classList.remove("over");
     zone.classList.add("over");
+    const idx = zone.dataset.zone === "u"
+      ? unseatedIndexAt(zone, e)
+      : seatIndexAt(zone, e, seatsWithout(Number(zone.dataset.zone)).length + 1);
+    if (drag.zone === zone && drag.index === idx) return;
+    previewAt(zone, idx);
   });
   board.addEventListener("dragleave", e => {
     const zone = e.target.closest(".table-zone[data-zone]");
-    if (zone && !zone.contains(e.relatedTarget)) zone.classList.remove("over");
+    if (!zone || zone.contains(e.relatedTarget)) return;
+    zone.classList.remove("over");
+    if (drag && drag.zone === zone) {
+      restoreZone(zone);
+      drag.zone = null;
+      drag.index = -1;
+      drag.el.classList.remove("src-hidden");
+    }
   });
   board.addEventListener("drop", e => {
     const zone = e.target.closest(".table-zone[data-zone]");
     if (!zone) return;
     e.preventDefault();
-    const id = Number(e.dataTransfer.getData("text/plain"));
+    const id = drag ? drag.id : Number(e.dataTransfer.getData("text/plain"));
     if (!Number.isInteger(id) || !S.people[id]) return;
     const key = zone.dataset.zone;
     const target = key === "u" ? "u" : Number(key);
     if (target !== "u" && !S.groups[target]) return;
+    const at = drag && drag.zone === zone && drag.index >= 0 ? drag.index : -1;
 
     for (const list of [S.unseated].concat(S.seats)) {
       const k = list.indexOf(id);
       if (k !== -1) list.splice(k, 1);
     }
+    // the list now matches the one the preview was built from, so the guest
+    // lands in the seat the gap was showing
     const list = listFor(target);
-    if (target === "u") {
-      list.push(id);
-    } else {
-      // slot the guest in at whichever seat the drop point points to
-      const zr = zone.getBoundingClientRect();
-      const ang = Math.atan2(e.clientY - (zr.top + zr.height / 2), e.clientX - (zr.left + zr.width / 2));
-      const n = list.length + 1;
-      let frac = (ang + Math.PI / 2) / (2 * Math.PI);
-      frac = ((frac % 1) + 1) % 1;
-      list.splice(Math.round(frac * n) % n, 0, id);
-    }
+    list.splice(at < 0 ? list.length : Math.min(at, list.length), 0, id);
+    clearTimeout(reclamp);
+    board.classList.remove("moving-chip");
+    drag = null;
     save();
     render();
   });
@@ -1109,7 +1574,6 @@ Ada Lovelace"></textarea>
     const el = board.querySelector('.chip[data-id="' + j + '"]');
     if (el) el.classList.toggle("partner-hl", on);
   }
-
   // ---------- clipboard ----------
   async function copyToClipboard(text) {
     try {
@@ -1185,6 +1649,7 @@ Ada Lovelace"></textarea>
   function applyText(text) {
     try {
       S = importText(text);
+      raised = -1;
       dataError.textContent = "";
       lastPrefill = "";
       dataInput.value = "";
@@ -1245,6 +1710,7 @@ Ada Lovelace"></textarea>
   }
   // pull whatever S now points at into the board, the title bar and the chart list
   function adoptChart() {
+    raised = -1;
     lastPrefill = "";
     dataInput.value = "";
     dataError.textContent = "";
