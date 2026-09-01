@@ -163,6 +163,12 @@
   #canvas { position: relative; transform-origin: 0 0; }
   #canvas.animating { transition: transform 280ms ease; }
   #canvas.animating .table-zone { transition: left 280ms ease, top 280ms ease; }
+  /* while one card is dragged the rest slide through the slots around it */
+  #canvas.reflow .table-zone:not(.moving) { transition: left 220ms ease, top 220ms ease; }
+  /* and the guests already seated at a table shuffle aside for a dropped chip */
+  .moving-chip .table-zone:not(.unseated) .chip {
+    transition: left 200ms ease, top 200ms ease, transform 200ms ease;
+  }
   #links { position: absolute; left: 0; top: 0; z-index: 1; pointer-events: none; }
   #links-out { position: absolute; inset: 0; z-index: 30; pointer-events: none; }
   #links, #links-out { transition: opacity 120ms ease; }
@@ -181,13 +187,16 @@
     user-select: none;
     -webkit-user-select: none;
   }
-  .table-zone:not(.unseated):hover { z-index: 10; }
-  .table-zone.raised:not(.unseated) { z-index: 11; }
-  .table-zone.moving:not(.unseated) {
-    cursor: grabbing;
+  /* Lifting a card puts it above the couple lines, which are drawn across the
+     whole canvas underneath the cards — so only lift where cards can overlap:
+     while one is in flight, and anywhere in a Custom arrangement. */
+  #canvas.free .table-zone:hover { z-index: 10; }
+  #canvas.free .table-zone.raised { z-index: 11; }
+  .table-zone.moving, .table-zone.landing {
     z-index: 20;
     box-shadow: 0 12px 28px rgba(0, 0, 0, 0.18);
   }
+  .table-zone.moving { cursor: grabbing; }
   .table-zone.over {
     border-color: var(--drop-ring);
     box-shadow: inset 0 0 0 1px var(--drop-ring);
@@ -546,7 +555,7 @@
       <option value="grid">Grid</option>
       <option value="circle">Circle</option>
       <option value="rect">Rectangle</option>
-      <option value="custom">Custom</option>
+      <option value="custom" title="Drop tables anywhere instead of into the arrangement's slots">Custom</option>
     </select>
   </label>
   <label id="cols-wrap">
@@ -943,7 +952,8 @@ Ada Lovelace"></textarea>
 
   // ---------- arrangements ----------
   // Tables sit at free (x, y) centres on the canvas. A preset arrangement is just
-  // a recipe for those centres; "custom" means the user placed them by hand.
+  // a recipe for those centres, one slot per table in list order; "custom" drops
+  // the recipe and keeps whatever centres the tables already had.
   function arrangeGrid(n, cols) {
     const c = Math.max(1, Math.min(cols || autoCols(n), Math.max(1, n)));
     const out = [];
@@ -1012,7 +1022,7 @@ Ada Lovelace"></textarea>
       y: Math.round(p.y - miny + CARD_H / 2),
     }));
   }
-  // a preset owns every position; custom keeps what the user dragged and drops
+  // a preset owns every position; custom keeps what the user placed and drops
   // any table that has no position yet onto a fresh row underneath
   function ensurePositions() {
     const n = S.groups.length;
@@ -1304,8 +1314,47 @@ Ada Lovelace"></textarea>
   });
   stage.addEventListener("scroll", () => { if (!stage.hidden) drawLinks(); });
 
+  // ---------- movement ----------
+  // Most of the board moves by changing left/top and letting a CSS transition
+  // carry it. Two things cannot: the unseated strip lays its chips out in flow,
+  // and a re-render replaces the elements outright. Those take each element's
+  // screen rect before the change and play it back from there afterwards.
+  const MOVE_MS = 200;
+  function takeRects(els) {
+    const m = new Map();
+    for (const el of els) m.set(el, el.getBoundingClientRect());
+    return m;
+  }
+  function playMoves(rects) {
+    for (const [el, was] of rects) {
+      if (!el.isConnected) continue;
+      const now = el.getBoundingClientRect();
+      // a chip hidden at either end of the change has nowhere to travel from
+      if (!was.width || !now.width) continue;
+      // inside the canvas the element's own coordinates are the scaled-down ones
+      const s = canvas.contains(el) ? scale : 1;
+      const dx = (was.left - now.left) / s, dy = (was.top - now.top) / s;
+      if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) continue;
+      const base = el.style.transform || "none";
+      el.animate([
+        { transform: "translate(" + dx + "px, " + dy + "px)" + (base === "none" ? "" : " " + base) },
+        { transform: base },
+      ], { duration: MOVE_MS, easing: "ease-out" });
+    }
+  }
+  // Run a change to the seating with the unseated strip's chips sliding to their
+  // new spots. Nested calls belong to the outer one, which spans the whole move.
+  let movesDepth = 0;
+  function withMoves(fn) {
+    if (movesDepth++) { try { fn(); } finally { movesDepth--; } return; }
+    const rects = takeRects(unseatedWrap.querySelectorAll(".chip, .seat-ghost"));
+    try { fn(); } finally { movesDepth--; }
+    playMoves(rects);
+  }
+
   // ---------- arrangement controls ----------
   function syncToolbar() {
+    canvas.classList.toggle("free", S.layout.mode === "custom");
     modeSel.value = S.layout.mode;
     colsSel.value = String(S.layout.cols || 0);
     colsWrap.hidden = S.layout.mode !== "grid";
@@ -1385,7 +1434,33 @@ Ada Lovelace"></textarea>
   });
 
   // ---------- moving a whole table ----------
+  // A preset arrangement owns a fixed set of slots, so dragging a card there
+  // reorders the tables rather than placing the card by hand: the card follows
+  // the pointer and the others slide through the slots around it, the way guests
+  // shuffle within a table. Only the Custom arrangement takes a free position.
   let tableDrag = null;
+  // the slot the dragged card's centre is sitting in, or -1 for none of them
+  function slotAt(x, y, slots) {
+    let best = -1, bestD = Infinity;
+    for (let k = 0; k < slots.length; k++) {
+      const dx = x - slots[k].x, dy = y - slots[k].y;
+      if (Math.abs(dx) > (CARD_W + GAP) / 2 || Math.abs(dy) > (CARD_H + GAP) / 2) continue;
+      const d = dx * dx + dy * dy;
+      if (d < bestD) { bestD = d; best = k; }
+    }
+    return best;
+  }
+  // lay every card but the dragged one along the slots in the order shown so far
+  function showOrder(t) {
+    for (let k = 0; k < t.order.length; k++) {
+      const gi = t.order[k];
+      if (gi === t.gi) continue;
+      const zone = canvas.querySelector('.table-zone[data-zone="' + gi + '"]');
+      if (!zone) continue;
+      zone.style.left = (t.slots[k].x - CARD_W / 2) + "px";
+      zone.style.top = (t.slots[k].y - CARD_H / 2) + "px";
+    }
+  }
   canvas.addEventListener("pointerdown", e => {
     if (e.button !== 0) return;
     const zone = e.target.closest(".table-zone[data-zone]");
@@ -1393,37 +1468,73 @@ Ada Lovelace"></textarea>
     if (e.target.closest(".chip, button")) return;
     const gi = Number(zone.dataset.zone);
     if (!S.pos[gi]) return;
-    tableDrag = { gi, zone, sx: e.clientX, sy: e.clientY, ox: S.pos[gi].x, oy: S.pos[gi].y, moved: false };
+    tableDrag = {
+      gi: gi, zone: zone, sx: e.clientX, sy: e.clientY,
+      ox: S.pos[gi].x, oy: S.pos[gi].y, moved: false,
+      snap: S.layout.mode !== "custom",
+      slots: S.pos.map(p => ({ x: p.x, y: p.y })),
+      order: S.groups.map((g, i) => i),
+    };
     zone.setPointerCapture(e.pointerId);
     e.preventDefault();
   });
   canvas.addEventListener("pointermove", e => {
     if (!tableDrag) return;
-    const dx = (e.clientX - tableDrag.sx) / scale;
-    const dy = (e.clientY - tableDrag.sy) / scale;
-    if (!tableDrag.moved) {
+    const t = tableDrag;
+    const dx = (e.clientX - t.sx) / scale;
+    const dy = (e.clientY - t.sy) / scale;
+    if (!t.moved) {
       if (Math.abs(dx) + Math.abs(dy) < 3) return;
-      tableDrag.moved = true;
-      tableDrag.zone.classList.add("moving");
+      t.moved = true;
+      t.zone.classList.add("moving");
+      if (t.snap) canvas.classList.add("reflow");
+      // couple lines would trail a card's length behind, so they wait for the drop
+      for (const el of document.querySelectorAll("#links, #links-out")) el.remove();
     }
-    const x = Math.max(CARD_W / 2, tableDrag.ox + dx);
-    const y = Math.max(CARD_H / 2, tableDrag.oy + dy);
-    S.pos[tableDrag.gi] = { x, y };
-    tableDrag.zone.style.left = (x - CARD_W / 2) + "px";
-    tableDrag.zone.style.top = (y - CARD_H / 2) + "px";
+    const x = Math.max(CARD_W / 2, t.ox + dx);
+    const y = Math.max(CARD_H / 2, t.oy + dy);
+    S.pos[t.gi] = { x: x, y: y };
+    t.zone.style.left = (x - CARD_W / 2) + "px";
+    t.zone.style.top = (y - CARD_H / 2) + "px";
+    if (!t.snap) return;
+    const to = slotAt(x, y, t.slots);
+    const from = t.order.indexOf(t.gi);
+    if (to === -1 || to === from) return;
+    t.order.splice(to, 0, t.order.splice(from, 1)[0]);
+    showOrder(t);
   });
   function endTableDrag(e) {
     if (!tableDrag) return;
     const t = tableDrag;
     tableDrag = null;
     t.zone.classList.remove("moving");
+    canvas.classList.remove("reflow");
     try { t.zone.releasePointerCapture(e.pointerId); } catch (err) {}
     if (!t.moved) return;
-    // placing a table by hand is what turns a preset arrangement into a custom one
-    S.layout.mode = "custom";
-    raised = t.gi;
+    if (!t.snap) {
+      // placing a table by hand only happens in a Custom arrangement
+      raised = t.gi;
+      save();
+      render();
+      return;
+    }
+    // The card snaps into whichever slot it was left over, and the table list is
+    // reordered to match, so exports read in the order the room is laid out.
+    const was = t.zone.getBoundingClientRect();
+    const order = t.order;
+    S.groups = order.map(i => S.groups[i]);
+    S.seats = order.map(i => S.seats[i]);
+    S.pos = order.map(i => S.pos[i]);
+    // whichever table was raised by hand is still that table, at its new index
+    raised = order.indexOf(raised);
+    const at = order.indexOf(t.gi);
     save();
     render();
+    const landed = canvas.querySelector('.table-zone[data-zone="' + at + '"]');
+    if (!landed) return;
+    playMoves(new Map([[landed, was]]));
+    landed.classList.add("landing");
+    setTimeout(() => landed.classList.remove("landing"), MOVE_MS);
   }
   canvas.addEventListener("pointerup", endTableDrag);
   canvas.addEventListener("pointercancel", endTableDrag);
@@ -1450,44 +1561,51 @@ Ada Lovelace"></textarea>
     return chips.length;
   }
   function restoreZone(zone) {
-    const ghost = zone.querySelector(".seat-ghost");
-    if (ghost) ghost.remove();
-    if (zone.dataset.zone !== "u") layoutSeats(zone, S.seats[Number(zone.dataset.zone)], -1);
-    zone.classList.remove("over");
+    withMoves(() => {
+      const ghost = zone.querySelector(".seat-ghost");
+      if (ghost) ghost.remove();
+      if (zone.dataset.zone !== "u") layoutSeats(zone, S.seats[Number(zone.dataset.zone)], -1);
+      zone.classList.remove("over");
+    });
   }
   function previewAt(zone, idx) {
-    if (drag.zone && drag.zone !== zone) restoreZone(drag.zone);
-    drag.zone = zone;
-    drag.index = idx;
-    drag.el.classList.add("src-hidden");
-    if (zone.dataset.zone === "u") {
-      let ghost = zone.querySelector(".seat-ghost");
-      if (!ghost) {
-        ghost = document.createElement("div");
-        ghost.className = "seat-ghost inline";
+    withMoves(() => {
+      if (drag.zone && drag.zone !== zone) restoreZone(drag.zone);
+      drag.zone = zone;
+      drag.index = idx;
+      drag.el.classList.add("src-hidden");
+      if (zone.dataset.zone === "u") {
+        let ghost = zone.querySelector(".seat-ghost");
+        if (!ghost) {
+          ghost = document.createElement("div");
+          ghost.className = "seat-ghost inline";
+        }
+        const chips = [...zone.querySelectorAll(".chip")].filter(c => c !== drag.el);
+        zone.insertBefore(ghost, chips[idx] || null);
+      } else {
+        // clear any clamping first, then re-clamp once the chips have slid over
+        for (const el of zone.querySelectorAll(".chip")) el.style.transform = "translate(-50%, -50%)";
+        layoutSeats(zone, seatsWithout(Number(zone.dataset.zone)), idx);
+        clearTimeout(reclamp);
+        reclamp = setTimeout(clampChips, MOVE_MS);
       }
-      const chips = [...zone.querySelectorAll(".chip")].filter(c => c !== drag.el);
-      zone.insertBefore(ghost, chips[idx] || null);
-    } else {
-      // clear any clamping first, then re-clamp once the chips have slid over
-      for (const el of zone.querySelectorAll(".chip")) el.style.transform = "translate(-50%, -50%)";
-      layoutSeats(zone, seatsWithout(Number(zone.dataset.zone)), idx);
-      clearTimeout(reclamp);
-      reclamp = setTimeout(clampChips, 200);
-    }
+    });
   }
   function seatsWithout(gi) {
     return S.seats[gi].filter(x => x !== drag.id);
   }
+  // an abandoned drag puts the board back the way it was, chips sliding closed
   function endDrag() {
     clearTimeout(reclamp);
+    withMoves(() => {
+      if (drag && drag.zone) restoreZone(drag.zone);
+      drag = null;
+      for (const el of board.querySelectorAll(".dragging, .over, .partner-hl, .src-hidden")) {
+        el.classList.remove("dragging", "over", "partner-hl", "src-hidden");
+      }
+      for (const el of board.querySelectorAll(".seat-ghost")) el.remove();
+    });
     board.classList.remove("moving-chip");
-    if (drag && drag.zone) restoreZone(drag.zone);
-    drag = null;
-    for (const el of board.querySelectorAll(".dragging, .over, .partner-hl, .src-hidden")) {
-      el.classList.remove("dragging", "over", "partner-hl", "src-hidden");
-    }
-    for (const el of board.querySelectorAll(".seat-ghost")) el.remove();
   }
 
   board.addEventListener("dragstart", e => {
@@ -1525,13 +1643,15 @@ Ada Lovelace"></textarea>
   board.addEventListener("dragleave", e => {
     const zone = e.target.closest(".table-zone[data-zone]");
     if (!zone || zone.contains(e.relatedTarget)) return;
-    zone.classList.remove("over");
-    if (drag && drag.zone === zone) {
-      restoreZone(zone);
-      drag.zone = null;
-      drag.index = -1;
-      drag.el.classList.remove("src-hidden");
-    }
+    withMoves(() => {
+      zone.classList.remove("over");
+      if (drag && drag.zone === zone) {
+        restoreZone(zone);
+        drag.zone = null;
+        drag.index = -1;
+        drag.el.classList.remove("src-hidden");
+      }
+    });
   });
   board.addEventListener("drop", e => {
     const zone = e.target.closest(".table-zone[data-zone]");
