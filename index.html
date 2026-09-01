@@ -1,0 +1,1058 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Seating Chart Builder</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Instrument+Sans:wght@400;500;600&display=swap">
+<style>
+  :root {
+    --bg: #F3F4EF;
+    --surface: #FFFFFF;
+    --surface-soft: #EBEDE5;
+    --disc: #E2E5D8;
+    --ink: #23271F;
+    --muted: #6C7462;
+    --border: #D9DCCE;
+    --accent: #5A6B3F;
+    --accent-ink: #FFFFFF;
+    --accent-soft: rgba(90, 107, 63, 0.10);
+    --drop-ring: #5A6B3F;
+    --chip-shadow: 0 1px 2px rgba(35, 39, 31, 0.10);
+    --scrim: rgba(35, 39, 31, 0.28);
+    --error: #A03B2E;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #1A1C16;
+      --surface: #242720;
+      --surface-soft: #1F2219;
+      --disc: #2B2F24;
+      --ink: #E9EBE1;
+      --muted: #9BA28D;
+      --border: #383D2F;
+      --accent: #A6B878;
+      --accent-ink: #1A1C16;
+      --accent-soft: rgba(166, 184, 120, 0.14);
+      --drop-ring: #A6B878;
+      --chip-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+      --scrim: rgba(0, 0, 0, 0.5);
+      --error: #E08573;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #1A1C16;
+    --surface: #242720;
+    --surface-soft: #1F2219;
+    --disc: #2B2F24;
+    --ink: #E9EBE1;
+    --muted: #9BA28D;
+    --border: #383D2F;
+    --accent: #A6B878;
+    --accent-ink: #1A1C16;
+    --accent-soft: rgba(166, 184, 120, 0.14);
+    --drop-ring: #A6B878;
+    --chip-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --scrim: rgba(0, 0, 0, 0.5);
+    --error: #E08573;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "Instrument Sans", "Helvetica Neue", Arial, sans-serif;
+    font-size: 14px;
+    line-height: 1.45;
+  }
+
+  /* --- top bar --- */
+  .topbar {
+    max-width: 1240px;
+    margin: 0 auto;
+    padding: 26px 24px 10px;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  #chart-title {
+    display: block;
+    font-family: "Fraunces", Georgia, serif;
+    font-weight: 600;
+    font-size: 26px;
+    line-height: 1.2;
+    letter-spacing: 0.01em;
+    color: var(--ink);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    padding: 2px 6px;
+    margin: 0 0 2px -6px;
+    width: min(520px, 100%);
+  }
+  #chart-title::placeholder { color: var(--muted); opacity: 0.7; }
+  #chart-title:hover { border-color: var(--border); }
+  #chart-title:focus { outline: none; border-color: var(--drop-ring); background: var(--surface); }
+  .subtitle { color: var(--muted); font-size: 13px; padding-left: 1px; }
+  .topbar-actions { display: flex; gap: 8px; flex-wrap: wrap; padding-top: 4px; }
+
+  button {
+    font: inherit;
+    font-weight: 600;
+    border-radius: 8px;
+    padding: 8px 16px;
+    cursor: pointer;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--ink);
+  }
+  button:focus-visible { outline: 2px solid var(--drop-ring); outline-offset: 2px; }
+  button.primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--accent-ink);
+  }
+  button.danger { color: var(--error); border-color: var(--border); }
+  .hint { color: var(--muted); font-size: 12.5px; }
+  .hint code {
+    font: 12px/1.4 ui-monospace, "SF Mono", Menlo, monospace;
+    background: var(--surface-soft);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 1px 5px;
+  }
+
+  /* --- board --- */
+  main {
+    position: relative;
+    max-width: 1240px;
+    margin: 0 auto;
+    padding: 12px 24px 60px;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 14px;
+  }
+  #links { position: absolute; inset: 0; z-index: 1; pointer-events: none; }
+  @media (max-width: 980px) { main { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 620px) { main { grid-template-columns: 1fr; } }
+
+  .table-zone {
+    position: relative;
+    background: var(--surface-soft);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    height: 300px;
+    overflow: hidden;
+    transition: border-color 120ms, box-shadow 120ms;
+  }
+  .table-zone.over {
+    border-color: var(--drop-ring);
+    box-shadow: inset 0 0 0 1px var(--drop-ring);
+  }
+  .table-zone.unseated {
+    grid-column: 1 / -1;
+    height: auto;
+    min-height: 60px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    padding: 10px 14px;
+    border-style: dashed;
+  }
+  .unseated-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin-right: 8px;
+    pointer-events: none;
+  }
+  .table-zone.add, .empty-state {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-style: dashed;
+    background: transparent;
+  }
+  .table-zone.add { min-height: 300px; }
+  .empty-state {
+    grid-column: 1 / -1;
+    height: auto;
+    flex-direction: column;
+    gap: 12px;
+    padding: 56px 24px;
+    text-align: center;
+  }
+  .empty-state h2 {
+    font-family: "Fraunces", Georgia, serif;
+    font-weight: 600;
+    font-size: 18px;
+    margin: 0;
+  }
+
+  .table-disc {
+    position: absolute;
+    left: 50%; top: 50%;
+    transform: translate(-50%, -50%);
+    width: 116px; height: 116px;
+    border-radius: 50%;
+    background: var(--disc);
+    border: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    padding: 6px;
+  }
+  .table-zone.over .table-disc {
+    border-color: var(--drop-ring);
+    box-shadow: 0 0 0 1px var(--drop-ring);
+  }
+  .zone-title {
+    font-family: "Fraunces", Georgia, serif;
+    font-weight: 600;
+    font-size: 15px;
+    color: var(--ink);
+    text-align: center;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  button.zone-title {
+    background: none;
+    border: none;
+    padding: 0 2px;
+    cursor: text;
+    border-radius: 4px;
+  }
+  button.zone-title:hover { background: var(--accent-soft); }
+  .zone-count {
+    font-variant-numeric: tabular-nums;
+    font-size: 12px;
+    font-weight: 600;
+    background: var(--accent-soft);
+    color: var(--accent);
+    border-radius: 999px;
+    padding: 1px 9px;
+    pointer-events: none;
+  }
+  .zone-del {
+    position: absolute;
+    top: 6px; right: 6px;
+    z-index: 6;
+    width: 24px; height: 24px;
+    padding: 0;
+    line-height: 1;
+    border-radius: 6px;
+    border-color: transparent;
+    background: transparent;
+    color: var(--muted);
+    opacity: 0.55;
+  }
+  .zone-del:hover { opacity: 1; background: var(--surface); border-color: var(--border); color: var(--error); }
+
+  .chip {
+    position: absolute;
+    z-index: 2;
+    transform: translate(-50%, -50%);
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    white-space: nowrap;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 3px 9px;
+    cursor: grab;
+    box-shadow: var(--chip-shadow);
+    user-select: none;
+    -webkit-user-select: none;
+    font-size: 12.5px;
+    max-width: 92%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .unseated .chip { position: static; transform: none; }
+  .chip:hover { z-index: 5; }
+  .chip:active { cursor: grabbing; }
+  .chip.dragging { opacity: 0.35; }
+  .chip.partner-hl { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); z-index: 4; }
+  .chip .dot { width: 6px; height: 6px; border-radius: 50%; flex: none; }
+
+  /* --- drawer --- */
+  #scrim {
+    position: fixed;
+    inset: 0;
+    background: var(--scrim);
+    z-index: 40;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 180ms ease;
+  }
+  body.drawer-open #scrim { opacity: 1; pointer-events: auto; }
+  #drawer {
+    position: fixed;
+    top: 0; right: 0; bottom: 0;
+    z-index: 50;
+    width: min(460px, 94vw);
+    background: var(--surface);
+    border-left: 1px solid var(--border);
+    box-shadow: -14px 0 34px rgba(0, 0, 0, 0.14);
+    display: flex;
+    flex-direction: column;
+    transform: translateX(101%);
+    visibility: hidden;
+    transition: transform 200ms ease, visibility 200ms;
+  }
+  body.drawer-open #drawer { transform: none; visibility: visible; }
+  .drawer-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 16px 18px;
+    border-bottom: 1px solid var(--border);
+  }
+  .drawer-head strong { font-family: "Fraunces", Georgia, serif; font-size: 17px; font-weight: 600; }
+  .drawer-body {
+    padding: 16px 18px 24px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  #data-input {
+    font: 12.5px/1.5 ui-monospace, "SF Mono", Menlo, monospace;
+    color: var(--ink);
+    background: var(--surface-soft);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    min-height: 230px;
+    resize: vertical;
+    tab-size: 18;
+    white-space: pre;
+    overflow-wrap: normal;
+    overflow-x: auto;
+  }
+  #data-input:focus-visible { outline: 2px solid var(--drop-ring); outline-offset: 1px; }
+  .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .section-label {
+    font-size: 11.5px;
+    font-weight: 600;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .drawer-body hr { border: none; border-top: 1px solid var(--border); margin: 4px 0; width: 100%; }
+  .error { color: var(--error); font-size: 12.5px; font-weight: 600; }
+  .icon-btn { padding: 6px 10px; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div>
+    <input id="chart-title" placeholder="Untitled seating chart" maxlength="120" spellcheck="false" aria-label="Chart title">
+    <div class="subtitle"><span id="total">0</span> guests · drag a name onto a table — drop between two people to seat them there</div>
+  </div>
+  <div class="topbar-actions">
+    <button id="copy-link">Copy link</button>
+    <button id="drawer-open" class="primary">Guest data</button>
+  </div>
+</div>
+
+<main id="board"></main>
+
+<div id="scrim"></div>
+
+<aside id="drawer" aria-label="Guest data" inert>
+  <div class="drawer-head">
+    <strong>Guest data</strong>
+    <button id="drawer-close" class="icon-btn" aria-label="Close">Close</button>
+  </div>
+  <div class="drawer-body">
+    <p class="hint" style="margin:0">
+      Paste CSV or TSV — one row per guest or couple:<br>
+      <code>guest, companion, seating group</code><br>
+      Companion and seating group are both optional; a row with no group starts out unseated. A header row is skipped automatically. Loading replaces the current chart.
+    </p>
+    <textarea id="data-input" spellcheck="false" placeholder="guest, companion, group
+Jane Doe, John Doe, Table 1
+Sam Rivera, , Table 1
+Ada Lovelace"></textarea>
+    <div class="row">
+      <button id="load-data" class="primary">Load into chart</button>
+      <button id="revert-data">Revert to last load</button>
+    </div>
+    <div id="data-error" class="error" role="alert"></div>
+    <hr>
+    <div class="section-label">Copy out</div>
+    <div class="row">
+      <button id="copy-csv">CSV</button>
+      <button id="copy-tsv">TSV</button>
+      <button id="copy-seats">Seat list</button>
+    </div>
+    <p class="hint" style="margin:0">CSV and TSV round-trip back into the box above, empty tables included; a couple seated at two different tables is written out at the first partner's table. Seat list is a flat <code>group, seat, guest</code> export for place cards.</p>
+    <hr>
+    <div class="row"><button id="clear-all" class="danger">Clear everything</button></div>
+    <p class="hint" style="margin:0">This chart is saved in this browser only. Use <em>Copy link</em> to carry it to another browser or device — the whole chart travels inside the link.</p>
+  </div>
+</aside>
+
+<script>
+  const STORE_KEY = "seating-chart-v1";
+  const COUPLE_HUES = [18, 205, 45, 280, 340, 95, 160, 240, 60, 310, 130, 25, 190, 265, 355, 80, 220];
+  const MAX_GROUPS = 200;
+
+  // ---------- state ----------
+  // people: [{name, couple: number|null, first: bool}]
+  // groups: ["Table 1", ...]           seats: [[personIndex, ...], ...]  (parallel to groups)
+  // unseated: [personIndex, ...]       source: last text loaded through the drawer
+  function emptyState() {
+    return { title: "", people: [], groups: [], seats: [], unseated: [], source: "" };
+  }
+  let S = emptyState();
+
+  function coupleColor(c) {
+    return "hsl(" + COUPLE_HUES[c % COUPLE_HUES.length] + ", 42%, 52%)";
+  }
+  // a bare number reads better as a table than as "7"
+  function groupLabel(name) {
+    return /^\d+$/.test(name) ? "Table " + name : name;
+  }
+  function partnerOf(i) {
+    const p = S.people[i];
+    if (!p || p.couple === null) return -1;
+    for (let j = 0; j < S.people.length; j++) {
+      if (j !== i && S.people[j].couple === p.couple) return j;
+    }
+    return -1;
+  }
+  function listFor(zone) {
+    return zone === "u" ? S.unseated : S.seats[zone];
+  }
+
+  // ---------- CSV / TSV parsing ----------
+  function parseCsvRows(text) {
+    const rows = [];
+    let row = [], field = "", quoted = false;
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i];
+      if (quoted) {
+        if (ch !== '"') { field += ch; }
+        else if (text[i + 1] === '"') { field += '"'; i++; }
+        else { quoted = false; }
+      } else if (ch === '"') { quoted = true; }
+      else if (ch === ",") { row.push(field); field = ""; }
+      else if (ch === "\n") { row.push(field); rows.push(row); row = []; field = ""; }
+      else if (ch !== "\r") { field += ch; }
+    }
+    row.push(field);
+    rows.push(row);
+    return rows;
+  }
+  // the delimiter is decided once for the whole paste, not per line
+  function parseTable(text) {
+    const t = String(text);
+    const rows = t.indexOf("\t") !== -1
+      ? t.split(/\r?\n/).map(line => line.split("\t"))
+      : parseCsvRows(t);
+    return rows.map(r => r.map(c => c.trim()));
+  }
+  function looksLikeHeader(cells) {
+    return /^(guest|guests|guest name|name|names)$/i.test(cells[0] || "");
+  }
+
+  // 1 column = guest · 2 = guest + companion · 3 = guest + companion + group.
+  // A row with no guest but a group registers that group as an empty table.
+  function importText(text) {
+    const rows = parseTable(text).filter(r => r.some(c => c !== ""));
+    if (rows.length && looksLikeHeader(rows[0])) rows.shift();
+    if (!rows.length) throw new Error("Nothing to import — paste at least one guest.");
+
+    const st = emptyState();
+    st.title = S.title;
+    st.source = String(text);
+    const index = new Map();
+    let couples = 0;
+
+    function groupIndex(name) {
+      const key = name.toLowerCase();
+      if (!index.has(key)) {
+        if (st.groups.length >= MAX_GROUPS) throw new Error("Too many seating groups (limit " + MAX_GROUPS + ").");
+        index.set(key, st.groups.length);
+        st.groups.push(name);
+        st.seats.push([]);
+      }
+      return index.get(key);
+    }
+    function addPerson(name, couple, first) {
+      return st.people.push({ name: name, couple: couple, first: first }) - 1;
+    }
+
+    rows.forEach((cells, n) => {
+      const guest = cells[0] || "", companion = cells[1] || "", group = cells[2] || "";
+      if (cells.length > 3 && cells.slice(3).some(c => c !== ""))
+        throw new Error("Row " + (n + 1) + ": expected at most 3 columns (guest, companion, group).");
+      if (!guest) {
+        if (companion) throw new Error("Row " + (n + 1) + ": there is a companion but no guest name.");
+        if (group) groupIndex(group);
+        return;
+      }
+      const target = group ? st.seats[groupIndex(group)] : st.unseated;
+      if (companion) {
+        const c = couples++;
+        target.push(addPerson(guest, c, true));
+        target.push(addPerson(companion, c, false));
+      } else {
+        target.push(addPerson(guest, null, true));
+      }
+    });
+    if (!st.people.length && !st.groups.length) throw new Error("No guest names found.");
+    return st;
+  }
+
+  // ---------- exports ----------
+  // One row per guest or couple, in seat order; empty tables get a group-only row
+  // so that copying out and pasting back in reproduces the same chart.
+  function buildRows() {
+    const rows = [];
+    const emit = (list, group) => {
+      for (const i of list) {
+        const p = S.people[i];
+        if (!p.first) continue;
+        const j = partnerOf(i);
+        rows.push([p.name, j === -1 ? "" : S.people[j].name, group]);
+      }
+    };
+    S.groups.forEach((g, gi) => {
+      const before = rows.length;
+      emit(S.seats[gi], g);
+      if (rows.length === before) rows.push(["", "", g]);
+    });
+    emit(S.unseated, "");
+    return rows;
+  }
+  function csvField(s) {
+    return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  }
+  function buildCsv() {
+    return ["guest,companion,group"]
+      .concat(buildRows().map(r => r.map(csvField).join(",")))
+      .join("\n");
+  }
+  function buildTsv() {
+    return buildRows().map(r => r.join("\t")).join("\n");
+  }
+  function buildSeatList() {
+    const lines = ["group,seat,guest"];
+    const emit = (list, group) => list.forEach((i, n) => {
+      lines.push(csvField(group) + "," + (n + 1) + "," + csvField(S.people[i].name));
+    });
+    S.groups.forEach((g, gi) => emit(S.seats[gi], groupLabel(g)));
+    emit(S.unseated, "Unseated");
+    return lines.join("\n");
+  }
+
+  // ---------- persistence ----------
+  function b64uEncode(str) {
+    const bytes = new TextEncoder().encode(str);
+    let bin = "";
+    for (const b of bytes) bin += String.fromCharCode(b);
+    return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  }
+  function b64uDecode(s) {
+    const bin = atob(s.replace(/-/g, "+").replace(/_/g, "/"));
+    return new TextDecoder().decode(Uint8Array.from(bin, c => c.charCodeAt(0)));
+  }
+  function validate(o) {
+    if (!o || typeof o !== "object" || !Array.isArray(o.people) ||
+        !Array.isArray(o.groups) || !Array.isArray(o.seats)) return null;
+    const st = emptyState();
+    st.title = typeof o.title === "string" ? o.title : "";
+    st.source = typeof o.source === "string" ? o.source : "";
+    for (const p of o.people) {
+      if (!p || typeof p.name !== "string" || !p.name) return null;
+      st.people.push({
+        name: p.name,
+        couple: Number.isInteger(p.couple) ? p.couple : null,
+        first: p.first !== false,
+      });
+    }
+    // "first" is derived, not trusted: it marks which half of a couple owns the
+    // exported row. A stray third member of a couple degrades to a single.
+    const members = new Map();
+    for (const p of st.people) {
+      if (p.couple === null) { p.first = true; continue; }
+      const n = (members.get(p.couple) || 0) + 1;
+      members.set(p.couple, n);
+      if (n === 1) { p.first = true; }
+      else if (n === 2) { p.first = false; }
+      else { p.couple = null; p.first = true; }
+    }
+    st.groups = o.groups.slice(0, MAX_GROUPS).map(g => (typeof g === "string" && g ? g : "Table"));
+    const seen = new Set();
+    const clean = list => {
+      const out = [];
+      for (const i of Array.isArray(list) ? list : []) {
+        if (Number.isInteger(i) && i >= 0 && i < st.people.length && !seen.has(i)) {
+          seen.add(i);
+          out.push(i);
+        }
+      }
+      return out;
+    };
+    st.seats = st.groups.map((g, i) => clean(o.seats[i]));
+    st.unseated = clean(o.unseated);
+    for (let i = 0; i < st.people.length; i++) if (!seen.has(i)) st.unseated.push(i);
+    return st;
+  }
+  function save() {
+    try { localStorage.setItem(STORE_KEY, JSON.stringify(S)); } catch (e) {}
+  }
+  // The whole chart travels in the link, so the payload is kept terse: people
+  // become [name] or [name, coupleId], and the raw paste text is left behind.
+  function sharePayload() {
+    return {
+      v: 1,
+      t: S.title,
+      g: S.groups,
+      p: S.people.map(p => (p.couple === null ? [p.name] : [p.name, p.couple])),
+      s: S.seats,
+      u: S.unseated,
+    };
+  }
+  function fromSharePayload(o) {
+    if (!o || o.v !== 1 || !Array.isArray(o.p)) return null;
+    return validate({
+      title: o.t,
+      groups: o.g,
+      seats: o.s,
+      unseated: o.u,
+      people: o.p.map(a => (Array.isArray(a) ? { name: a[0], couple: a[1] } : null)),
+    });
+  }
+  function shareUrl() {
+    return location.href.split(/[?#]/)[0] + "#s=" + b64uEncode(JSON.stringify(sharePayload()));
+  }
+  function restore() {
+    // a #s= link wins over whatever is in this browser, then hands the chart over to
+    // local storage and drops itself from the address bar so later edits stick
+    const m = /[#&]s=([A-Za-z0-9_-]+)/.exec(location.hash);
+    if (m) {
+      try {
+        const st = fromSharePayload(JSON.parse(b64uDecode(m[1])));
+        if (st) {
+          S = st;
+          save();
+          try { history.replaceState(null, "", location.pathname + location.search); } catch (e) {}
+          return;
+        }
+      } catch (e) {}
+    }
+    try {
+      const st = validate(JSON.parse(localStorage.getItem(STORE_KEY)));
+      if (st) { S = st; return; }
+    } catch (e) {}
+    S = emptyState();
+  }
+
+  // ---------- render ----------
+  const board = document.getElementById("board");
+  const titleInput = document.getElementById("chart-title");
+
+  function makeChip(i) {
+    const p = S.people[i];
+    const chip = document.createElement("div");
+    chip.className = "chip";
+    chip.draggable = true;
+    chip.dataset.id = i;
+    chip.title = p.name;
+    if (p.couple !== null) {
+      const dot = document.createElement("span");
+      dot.className = "dot";
+      dot.style.background = coupleColor(p.couple);
+      chip.append(dot);
+    }
+    chip.append(document.createTextNode(p.name));
+    return chip;
+  }
+  function zoneCount(n) {
+    const el = document.createElement("span");
+    el.className = "zone-count";
+    el.textContent = n;
+    return el;
+  }
+
+  function renderUnseated() {
+    const zone = document.createElement("section");
+    zone.className = "table-zone unseated";
+    zone.dataset.zone = "u";
+    const label = document.createElement("div");
+    label.className = "unseated-label";
+    const title = document.createElement("span");
+    title.className = "zone-title";
+    title.textContent = "Unseated";
+    label.append(title, zoneCount(S.unseated.length));
+    zone.append(label);
+    for (const i of S.unseated) zone.append(makeChip(i));
+    return zone;
+  }
+
+  function renderGroup(gi) {
+    const zone = document.createElement("section");
+    zone.className = "table-zone";
+    zone.dataset.zone = gi;
+    const seated = S.seats[gi];
+
+    const del = document.createElement("button");
+    del.className = "zone-del";
+    del.dataset.del = gi;
+    del.textContent = "✕";
+    del.title = "Remove this table";
+    del.setAttribute("aria-label", "Remove " + groupLabel(S.groups[gi]));
+    zone.append(del);
+
+    const disc = document.createElement("div");
+    disc.className = "table-disc";
+    const title = document.createElement("button");
+    title.className = "zone-title";
+    title.dataset.rename = gi;
+    title.textContent = groupLabel(S.groups[gi]);
+    title.title = "Rename";
+    disc.append(title, zoneCount(seated.length));
+    zone.append(disc);
+
+    // seats run clockwise from 12 o'clock; crowded tables grow and use two rings
+    const n = seated.length;
+    const crowded = n > 12;
+    if (n > 14) zone.style.height = (300 + (n - 14) * 14) + "px";
+    seated.forEach((id, k) => {
+      const angle = -Math.PI / 2 + (k * 2 * Math.PI) / n;
+      const inner = crowded && k % 2 === 1;
+      const chip = makeChip(id);
+      chip.style.left = (50 + (inner ? 29 : 41) * Math.cos(angle)) + "%";
+      chip.style.top = (50 + (inner ? 27 : 40) * Math.sin(angle)) + "%";
+      zone.append(chip);
+    });
+    return zone;
+  }
+
+  function renderAddZone() {
+    const zone = document.createElement("section");
+    zone.className = "table-zone add";
+    const btn = document.createElement("button");
+    btn.id = "add-table";
+    btn.textContent = "+ Add a table";
+    zone.append(btn);
+    return zone;
+  }
+
+  function renderEmpty() {
+    const box = document.createElement("section");
+    box.className = "table-zone empty-state";
+    const h = document.createElement("h2");
+    h.textContent = "No guests yet";
+    const p = document.createElement("p");
+    p.className = "hint";
+    p.style.margin = "0";
+    p.innerHTML = "Paste a CSV or TSV list of <code>guest, companion, seating group</code> to get started.";
+    const btn = document.createElement("button");
+    btn.id = "empty-open";
+    btn.className = "primary";
+    btn.textContent = "Paste guest data";
+    box.append(h, p, btn);
+    board.append(box);
+  }
+
+  function render() {
+    board.innerHTML = "";
+    document.getElementById("total").textContent = S.people.length;
+    if (!S.people.length && !S.groups.length) { renderEmpty(); return; }
+    board.append(renderUnseated());
+    S.groups.forEach((g, gi) => board.append(renderGroup(gi)));
+    board.append(renderAddZone());
+    clampChips();
+    drawLinks();
+  }
+
+  // a dashed line in the couple's own color joins the two halves of a pair
+  function drawLinks() {
+    const old = document.getElementById("links");
+    if (old) old.remove();
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.id = "links";
+    const br = board.getBoundingClientRect();
+    svg.setAttribute("viewBox", "0 0 " + br.width + " " + br.height);
+    const drawn = new Set();
+    for (let i = 0; i < S.people.length; i++) {
+      const c = S.people[i].couple;
+      if (c === null || drawn.has(c)) continue;
+      const j = partnerOf(i);
+      if (j === -1) continue;
+      drawn.add(c);
+      const els = [i, j].map(k => board.querySelector('.chip[data-id="' + k + '"]'));
+      if (!els[0] || !els[1]) continue;
+      const pts = els.map(el => {
+        const r = el.getBoundingClientRect();
+        return [r.left + r.width / 2 - br.left, r.top + r.height / 2 - br.top];
+      });
+      const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+      line.setAttribute("x1", pts[0][0]);
+      line.setAttribute("y1", pts[0][1]);
+      line.setAttribute("x2", pts[1][0]);
+      line.setAttribute("y2", pts[1][1]);
+      line.setAttribute("stroke", coupleColor(c));
+      line.setAttribute("stroke-width", "1.5");
+      line.setAttribute("stroke-dasharray", "5 4");
+      line.setAttribute("opacity", "0.5");
+      svg.append(line);
+    }
+    board.append(svg);
+  }
+
+  // nudge chips that stick out past their card's edge back inside
+  function clampChips() {
+    for (const zone of board.querySelectorAll(".table-zone:not(.unseated):not(.add)")) {
+      const zr = zone.getBoundingClientRect();
+      for (const chip of zone.querySelectorAll(".chip")) {
+        chip.style.transform = "translate(-50%, -50%)";
+        const r = chip.getBoundingClientRect();
+        let dx = 0;
+        if (r.left < zr.left + 5) dx = (zr.left + 5) - r.left;
+        else if (r.right > zr.right - 5) dx = (zr.right - 5) - r.right;
+        if (dx) chip.style.transform = "translate(calc(-50% + " + dx + "px), -50%)";
+      }
+    }
+  }
+  window.addEventListener("resize", () => { clampChips(); drawLinks(); });
+
+  // ---------- tables ----------
+  function newGroupName() {
+    const taken = new Set(S.groups.map(g => g.trim().toLowerCase()));
+    for (let n = 1; n <= MAX_GROUPS; n++) {
+      if (!taken.has("table " + n) && !taken.has(String(n))) return "Table " + n;
+    }
+    return "Table";
+  }
+  function addGroup() {
+    if (S.groups.length >= MAX_GROUPS) return;
+    S.groups.push(newGroupName());
+    S.seats.push([]);
+    save();
+    render();
+  }
+  function removeGroup(gi) {
+    if (!S.groups[gi]) return;
+    if (S.seats[gi].length && !confirm("Remove " + groupLabel(S.groups[gi]) + "? Its " + S.seats[gi].length + " guest(s) go back to Unseated.")) return;
+    S.unseated.push.apply(S.unseated, S.seats[gi]);
+    S.groups.splice(gi, 1);
+    S.seats.splice(gi, 1);
+    save();
+    render();
+  }
+  function renameGroup(gi) {
+    const next = prompt("Name for this table:", S.groups[gi]);
+    if (next === null) return;
+    const trimmed = next.trim();
+    if (!trimmed) return;
+    S.groups[gi] = trimmed;
+    save();
+    render();
+  }
+
+  board.addEventListener("click", e => {
+    const btn = e.target.closest("button");
+    if (!btn) return;
+    if (btn.id === "add-table") addGroup();
+    else if (btn.id === "empty-open") openDrawer();
+    else if (btn.dataset.del !== undefined) removeGroup(Number(btn.dataset.del));
+    else if (btn.dataset.rename !== undefined) renameGroup(Number(btn.dataset.rename));
+  });
+
+  // ---------- drag & drop ----------
+  board.addEventListener("dragstart", e => {
+    const chip = e.target.closest(".chip");
+    if (!chip) return;
+    e.dataTransfer.setData("text/plain", chip.dataset.id);
+    e.dataTransfer.effectAllowed = "move";
+    chip.classList.add("dragging");
+    highlightPartner(Number(chip.dataset.id), true);
+  });
+  board.addEventListener("dragend", () => {
+    board.querySelectorAll(".dragging, .over, .partner-hl")
+      .forEach(el => el.classList.remove("dragging", "over", "partner-hl"));
+  });
+  board.addEventListener("dragover", e => {
+    const zone = e.target.closest(".table-zone[data-zone]");
+    if (!zone) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    board.querySelectorAll(".over").forEach(el => { if (el !== zone) el.classList.remove("over"); });
+    zone.classList.add("over");
+  });
+  board.addEventListener("dragleave", e => {
+    const zone = e.target.closest(".table-zone[data-zone]");
+    if (zone && !zone.contains(e.relatedTarget)) zone.classList.remove("over");
+  });
+  board.addEventListener("drop", e => {
+    const zone = e.target.closest(".table-zone[data-zone]");
+    if (!zone) return;
+    e.preventDefault();
+    const id = Number(e.dataTransfer.getData("text/plain"));
+    if (!Number.isInteger(id) || !S.people[id]) return;
+    const key = zone.dataset.zone;
+    const target = key === "u" ? "u" : Number(key);
+    if (target !== "u" && !S.groups[target]) return;
+
+    for (const list of [S.unseated].concat(S.seats)) {
+      const k = list.indexOf(id);
+      if (k !== -1) list.splice(k, 1);
+    }
+    const list = listFor(target);
+    if (target === "u") {
+      list.push(id);
+    } else {
+      // slot the guest in at whichever seat the drop point points to
+      const zr = zone.getBoundingClientRect();
+      const ang = Math.atan2(e.clientY - (zr.top + zr.height / 2), e.clientX - (zr.left + zr.width / 2));
+      const n = list.length + 1;
+      let frac = (ang + Math.PI / 2) / (2 * Math.PI);
+      frac = ((frac % 1) + 1) % 1;
+      list.splice(Math.round(frac * n) % n, 0, id);
+    }
+    save();
+    render();
+  });
+
+  // hovering a chip outlines their companion
+  board.addEventListener("mouseover", e => {
+    const chip = e.target.closest(".chip");
+    if (chip) highlightPartner(Number(chip.dataset.id), true);
+  });
+  board.addEventListener("mouseout", e => {
+    const chip = e.target.closest(".chip");
+    if (chip) highlightPartner(Number(chip.dataset.id), false);
+  });
+  function highlightPartner(id, on) {
+    const j = partnerOf(id);
+    if (j === -1) return;
+    const el = board.querySelector('.chip[data-id="' + j + '"]');
+    if (el) el.classList.toggle("partner-hl", on);
+  }
+
+  // ---------- clipboard ----------
+  async function copyToClipboard(text) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch (e) {
+      const ta = document.createElement("textarea"); // fallback when the API is blocked
+      ta.value = text;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.append(ta);
+      ta.select();
+      let ok = false;
+      try { ok = document.execCommand("copy"); } catch (e2) {}
+      ta.remove();
+      return ok;
+    }
+  }
+  function wireCopy(id, getText, okLabel) {
+    const btn = document.getElementById(id);
+    btn.addEventListener("click", async () => {
+      const orig = btn.dataset.label || (btn.dataset.label = btn.textContent);
+      const ok = await copyToClipboard(getText());
+      btn.textContent = ok ? okLabel : "Copy failed";
+      setTimeout(() => { btn.textContent = orig; }, 1600);
+    });
+  }
+  wireCopy("copy-csv", buildCsv, "Copied ✓");
+  wireCopy("copy-tsv", buildTsv, "Copied ✓");
+  wireCopy("copy-seats", buildSeatList, "Copied ✓");
+  wireCopy("copy-link", shareUrl, "Link copied ✓");
+
+  // ---------- title ----------
+  titleInput.addEventListener("input", () => {
+    S.title = titleInput.value;
+    document.title = S.title.trim() ? S.title.trim() + " · Seating" : "Seating Chart Builder";
+    save();
+  });
+
+  // ---------- drawer ----------
+  const drawer = document.getElementById("drawer");
+  const dataInput = document.getElementById("data-input");
+  const dataError = document.getElementById("data-error");
+  let lastPrefill = "";
+
+  function openDrawer() {
+    // prefill with the current chart unless there is unsaved typing in the box
+    if (!dataInput.value.trim() || dataInput.value === lastPrefill) {
+      lastPrefill = S.people.length || S.groups.length ? buildTsv() : "";
+      dataInput.value = lastPrefill;
+    }
+    document.body.classList.add("drawer-open");
+    drawer.removeAttribute("inert");
+    dataInput.focus();
+  }
+  function closeDrawer() {
+    document.body.classList.remove("drawer-open");
+    drawer.setAttribute("inert", "");
+    dataError.textContent = "";
+  }
+  document.getElementById("drawer-open").addEventListener("click", openDrawer);
+  document.getElementById("drawer-close").addEventListener("click", closeDrawer);
+  document.getElementById("scrim").addEventListener("click", closeDrawer);
+  document.addEventListener("keydown", e => {
+    if (e.key === "Escape" && document.body.classList.contains("drawer-open")) closeDrawer();
+  });
+
+  function applyText(text) {
+    try {
+      S = importText(text);
+      dataError.textContent = "";
+      lastPrefill = "";
+      dataInput.value = "";
+      save();
+      render();
+      closeDrawer();
+    } catch (err) {
+      dataError.textContent = err.message;
+    }
+  }
+  document.getElementById("load-data").addEventListener("click", () => applyText(dataInput.value));
+  document.getElementById("revert-data").addEventListener("click", () => {
+    if (!S.source.trim()) { dataError.textContent = "Nothing has been loaded yet to revert to."; return; }
+    dataInput.value = S.source;
+    lastPrefill = S.source;
+    applyText(S.source);
+  });
+  document.getElementById("clear-all").addEventListener("click", () => {
+    if (!confirm("Delete this chart and all its guests from this browser?")) return;
+    S = emptyState();
+    lastPrefill = "";
+    dataInput.value = "";
+    dataError.textContent = "";
+    titleInput.value = "";
+    document.title = "Seating Chart Builder";
+    try { localStorage.removeItem(STORE_KEY); } catch (e) {}
+    render();
+    closeDrawer();
+  });
+
+  // ---------- boot ----------
+  restore();
+  titleInput.value = S.title;
+  if (S.title.trim()) document.title = S.title.trim() + " · Seating";
+  render();
+</script>
+</body>
+</html>
