@@ -910,7 +910,8 @@ Ada Lovelace"></textarea>
       s: S.seats,
       u: S.unseated,
       l: [S.layout.mode, S.layout.cols],
-      q: S.pos.map(p => (p ? [Math.round(p.x), Math.round(p.y)] : null)),
+      // a preset recomputes every centre on load, so only custom carries them
+      q: S.layout.mode === "custom" ? S.pos.map(p => (p ? [Math.round(p.x), Math.round(p.y)] : null)) : [],
     };
   }
   // v1 links predate arrangements and simply fall back to the default grid
@@ -927,22 +928,54 @@ Ada Lovelace"></textarea>
       people: o.p.map(a => (Array.isArray(a) ? { name: a[0], couple: a[1] } : null)),
     });
   }
-  function shareUrl() {
-    return location.href.split(/[?#]/)[0] + "#s=" + b64uEncode(JSON.stringify(sharePayload()));
+  // The link has to survive being texted, and messaging apps stop treating a URL as
+  // tappable once it runs to thousands of characters, so the chart is deflated
+  // first: #z= is deflate-raw bytes in base64url, about a third the size of the
+  // plain #s= form, which remains as the fallback where CompressionStream is missing.
+  async function pipeBytes(bytes, stream) {
+    const out = new Blob([bytes]).stream().pipeThrough(stream);
+    return new Uint8Array(await new Response(out).arrayBuffer());
   }
-  function restore() {
-    L = loadLibrary() || { active: "", charts: [] };
-    // a #s= link arrives as its own new chart, so it never overwrites local work, then
-    // drops itself from the address bar so later edits stick
-    const m = /[#&]s=([A-Za-z0-9_-]+)/.exec(location.hash);
-    if (m) {
+  function bytesToB64u(bytes) {
+    let bin = "";
+    for (const b of bytes) bin += String.fromCharCode(b);
+    return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  }
+  function b64uToBytes(s) {
+    return Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/")), c => c.charCodeAt(0));
+  }
+  async function shareUrl() {
+    const base = location.href.split(/[?#]/)[0];
+    const json = JSON.stringify(sharePayload());
+    if (typeof CompressionStream === "function") {
       try {
-        const st = fromSharePayload(JSON.parse(b64uDecode(m[1])));
-        if (st) {
-          addChart(st, true);
-          try { history.replaceState(null, "", location.pathname + location.search); } catch (e) {}
-        }
+        const bytes = await pipeBytes(new TextEncoder().encode(json), new CompressionStream("deflate-raw"));
+        return base + "#z=" + bytesToB64u(bytes);
       } catch (e) {}
+    }
+    return base + "#s=" + b64uEncode(json);
+  }
+  async function stateFromHash(hash) {
+    const m = /[#&]([sz])=([A-Za-z0-9_-]+)/.exec(hash);
+    if (!m) return null;
+    let json;
+    if (m[1] === "z") {
+      const bytes = await pipeBytes(b64uToBytes(m[2]), new DecompressionStream("deflate-raw"));
+      json = new TextDecoder().decode(bytes);
+    } else {
+      json = b64uDecode(m[2]);
+    }
+    return fromSharePayload(JSON.parse(json));
+  }
+  async function restore() {
+    L = loadLibrary() || { active: "", charts: [] };
+    // a shared link arrives as its own new chart, so it never overwrites local work,
+    // then drops itself from the address bar so later edits stick
+    let shared = null;
+    try { shared = await stateFromHash(location.hash); } catch (e) {}
+    if (shared) {
+      addChart(shared, true);
+      try { history.replaceState(null, "", location.pathname + location.search); } catch (e) {}
     }
     if (!activeEntry()) L.active = L.charts.length ? L.charts[0].id : "";
     if (!activeEntry()) addChart(emptyState(), true);
@@ -1695,13 +1728,23 @@ Ada Lovelace"></textarea>
     if (el) el.classList.toggle("partner-hl", on);
   }
   // ---------- clipboard ----------
+  // text may be a promise (the share link is deflated first). Safari revokes the
+  // click's user activation after an await, so the write is issued synchronously
+  // with a ClipboardItem that resolves later; other browsers get plain writeText.
   async function copyToClipboard(text) {
     try {
-      await navigator.clipboard.writeText(text);
+      if (typeof text.then === "function" && typeof ClipboardItem === "function") {
+        try {
+          const blob = text.then(t => new Blob([t], { type: "text/plain" }));
+          await navigator.clipboard.write([new ClipboardItem({ "text/plain": blob })]);
+          return true;
+        } catch (e) {}
+      }
+      await navigator.clipboard.writeText(await text);
       return true;
     } catch (e) {
       const ta = document.createElement("textarea"); // fallback when the API is blocked
-      ta.value = text;
+      try { ta.value = await text; } catch (e2) { return false; }
       ta.style.position = "fixed";
       ta.style.opacity = "0";
       document.body.append(ta);
@@ -1892,8 +1935,7 @@ Ada Lovelace"></textarea>
   document.getElementById("charts-new").addEventListener("click", newChart);
 
   // ---------- boot ----------
-  restore();
-  adoptChart();
+  restore().then(adoptChart);
 </script>
 </body>
 </html>
